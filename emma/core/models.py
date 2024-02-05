@@ -8,6 +8,7 @@ import torch.nn.functional as func
 from transformers import LongformerModel, PreTrainedModel, AutoTokenizer, PreTrainedTokenizer, AutoModel
 
 from .dataset import TruncatedDataset, TruncatedPlusRandomDataset, TruncatedPlusTextRankDataset, ChunkDataset
+from .labels import Labeler
 
 logger = logging.getLogger('longdoc.prep.booksummaries')
 
@@ -28,7 +29,7 @@ model_name_map = {
 
 class Module(torch.nn.Module):
 
-    def __init__(self, model_name: str, num_labels: int, cache_model_dir: str, dev: Optional[str]):
+    def __init__(self, model_name: str, labeler: Labeler, cache_model_dir: str, dev: Optional[str]):
         super().__init__()
         if dev is None:
             use_cuda = torch.cuda.is_available()
@@ -39,8 +40,8 @@ class Module(torch.nn.Module):
             logger.info('Device was set [%s] will use [%s].', dev, device)
         self.device = device
         self.model_name = model_name
+        self.labeler = labeler
         self.cache_model_dir = cache_model_dir
-        self.num_labels = num_labels
         self.dataset_class = TruncatedDataset
         self.has_additional_text = False
         self.model = None
@@ -63,14 +64,14 @@ class TransEnc(Module):
 
     _allowed_models = ['xlm-roberta-base', 'bert-base-uncased', 'bert-base-multilingual-cased']
 
-    def __init__(self, model_name: str, num_labels: int, cache_model_dir: str, device: str):
-        super().__init__(model_name, num_labels, cache_model_dir, device)
+    def __init__(self, model_name: str, labeler: Labeler, cache_model_dir: str, device: str):
+        super().__init__(model_name, labeler, cache_model_dir, device)
         if model_name not in TransEnc._allowed_models:
             raise RuntimeError(f'Only {TransEnc._allowed_models} are allowed!')
         self.model: PreTrainedModel = AutoModel.from_pretrained(model_name, cache_dir=cache_model_dir)
         self.tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_model_dir)
         self.dropout = torch.nn.Dropout(0.0)
-        self.classifier = torch.nn.Linear(768, num_labels)
+        self.classifier = torch.nn.Linear(768, len(self.labeler.labels))
         self.model.to(self.device)
 
     def set_dropout(self, dropout_rate: float):
@@ -98,20 +99,20 @@ class TransEnc(Module):
 
 
 class TransEncPlus(TransEnc):
-    def __init__(self, model_name: str, num_labels: int, cache_model_dir: str, device: str):
-        super().__init__(model_name, num_labels, cache_model_dir, device)
+    def __init__(self, model_name: str, labeler: Labeler, cache_model_dir: str, device: str):
+        super().__init__(model_name, labeler, cache_model_dir, device)
         self.set_has_additional_text(True)
         self.set_dataset_class(TruncatedPlusRandomDataset)
 
 
 class ToTransEncModel(Module):
-    def __init__(self, model_name: str, num_labels, cache_model_dir: str, device: str):
-        super().__init__(model_name, num_labels, cache_model_dir, device)
+    def __init__(self, model_name: str, labeler: Labeler, cache_model_dir: str, device: str):
+        super().__init__(model_name, labeler, cache_model_dir, device)
         self.model = AutoModel.from_pretrained(model_name, cache_dir=cache_model_dir)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_model_dir)
         self.trans = torch.nn.TransformerEncoderLayer(d_model=768, nhead=2)
         self.fc = torch.nn.Linear(768, 30)
-        self.classifier = torch.nn.Linear(30, num_labels)
+        self.classifier = torch.nn.Linear(30, len(self.labeler.labels))
         self.dataset_class = ChunkDataset
         self.model.to(self.device)
 
@@ -137,8 +138,8 @@ class ToTransEncModel(Module):
 
 
 class LongformerClass(Module):
-    def __init__(self, model_name: str, num_labels, cache_model_dir: str, device: str):
-        super().__init__(model_name, num_labels, cache_model_dir, device)
+    def __init__(self, model_name: str, labeler: Labeler, cache_model_dir: str, device: str):
+        super().__init__(model_name, labeler, cache_model_dir, device)
         self.longformer = LongformerModel.from_pretrained(
             model_name,
             add_pooling_layer=False,
@@ -146,7 +147,7 @@ class LongformerClass(Module):
             cache_dir=cache_model_dir
         )
         self.classifier = LongformerClassificationHead(
-            hidden_size=768, hidden_dropout_prob=0.1, num_labels=num_labels
+            hidden_size=768, hidden_dropout_prob=0.1, num_labels=len(self.labeler.labels)
         )
         self.tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_model_dir)
         self.dataset_class = TruncatedDataset
@@ -192,30 +193,30 @@ class LongformerClassificationHead(torch.nn.Module):
 class ModuleFactory:
     """Factory for creating model instances."""
     @staticmethod
-    def get_module(model_name: str, num_labels, cache_model_dir: str, device: Optional[str]) -> Module:
+    def get_module(model_name: str, labeler: Labeler, cache_model_dir: str, device: Optional[str]) -> Module:
         if model_name not in valid_model_names:
             raise RuntimeError(f'Model {model_name} should be one of {valid_model_names}!')
         module: Module
         if 'plustextrank' in model_name:
             logger.info('Loading %s model for %s.', TransEncPlus, model_name)
             pretrain_name = model_name[:-len('plustextrank')]
-            module = TransEncPlus(model_name_map[pretrain_name], num_labels, cache_model_dir, device)
+            module = TransEncPlus(model_name_map[pretrain_name], labeler, cache_model_dir, device)
             module.set_dataset_class(TruncatedPlusTextRankDataset)
         elif 'plusrandom' in model_name:
             logger.info('Loading %s model for %s.', TransEncPlus, model_name)
             pretrain_name = model_name[:-len('plusrandom')]
-            module = TransEncPlus(model_name_map[pretrain_name], num_labels, cache_model_dir, device)
+            module = TransEncPlus(model_name_map[pretrain_name], labeler, cache_model_dir, device)
         elif model_name.startswith('to'):
             logger.info('Loading %s model for %s.', ToTransEncModel, model_name)
             pretrain_name = model_name[2:]
-            module = ToTransEncModel(model_name_map[pretrain_name], num_labels, cache_model_dir, device)
+            module = ToTransEncModel(model_name_map[pretrain_name], labeler, cache_model_dir, device)
         elif model_name == 'longformer':
             logger.info('Loading %s model for %s.', LongformerClass, model_name)
             pretrain_name = model_name
-            module = LongformerClass(model_name_map[pretrain_name], num_labels, cache_model_dir, device)
+            module = LongformerClass(model_name_map[pretrain_name], labeler, cache_model_dir, device)
         else:
             logger.info('Loading %s model for %s.', TransEnc, model_name)
-            module = TransEnc(model_name_map[model_name], num_labels, cache_model_dir, device)
+            module = TransEnc(model_name_map[model_name], labeler, cache_model_dir, device)
         logger.info(
             'Loaded %s model with tokenizer %s for %s and max len %s.',
             module.model_name, module.tokenizer.name_or_path, module.dataset_class, module.get_max_len())

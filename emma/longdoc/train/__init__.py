@@ -1,16 +1,14 @@
-import os
 import logging
-import torch
-import pandas as pd
 
 from argparse import ArgumentParser
-from lightning import seed_everything
-from torch.utils.data import DataLoader
+from lightning import seed_everything, Trainer
+from lightning.pytorch.callbacks import ModelCheckpoint, DeviceStatsMonitor
+from lightning.pytorch.loggers import TensorBoardLogger
 
-from ...core.dataset import ChunkDataset
-from ...core.labels import Labeler, BinaryLabeler, MultilabelLabeler, MulticlassLabeler
+from .utils import _load_data, _chunk_collate_fn, _create_dataloader, _compute_output_name
+from ...core.classtrain import Classification
 from ...core.args import CommonArguments
-from ...core.models import valid_model_names, ModuleFactory, Module
+from ...core.models import valid_model_names, ModuleFactory
 
 logger = logging.getLogger('longdoc.prep')
 
@@ -31,75 +29,11 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
     parser.add_argument(
         '--model_name', type=str, required=True, help=f'Model name: {valid_model_names}'
     )
-
-
-def _load_data(split_dir, corpus: str):
-    text_set = {}
-    label_set = {}
-
-    labeler: Labeler = BinaryLabeler()
-    for split in ['train', 'dev', 'test']:
-        file_path = os.path.join(split_dir, corpus, split + '.csv')
-        data = pd.read_csv(file_path)
-        column_names = data.columns.tolist()
-        for col in column_names:
-            if 'text' in col:
-                text_set[split] = data[col].tolist()
-            if 'label' in col:
-                if col.startswith('ml_'):
-                    labeler = MultilabelLabeler()
-                if col.startswith('mc_'):
-                    labeler = MulticlassLabeler()
-                label_set[split] = data[col].tolist()
-
-    for split in ['train', 'dev', 'test']:
-        labeler.collect(label_set[split])
-    labeler.fit()
-    for split in ['train', 'dev', 'test']:
-        label_set[split] = labeler.vectorize(label_set[split])
-    return text_set, label_set, labeler
-
-
-def chunk_collate_fn(batches):
-    """
-    Create batches for ChunkDataset
-    """
-    return [{key: torch.stack(value) for key, value in batch.items()} for batch in batches]
-
-
-def create_dataloader(module: Module, text_set, label_set, batch_size, num_workers):
-    """
-    Create appropriate dataloaders for the given data
-    :param module: module that contains the dataset class, tokenizer and max available text length
-    :param text_set: dict of lists of texts for train/dev/test splits, keys=['train', 'dev', 'test']
-    :param label_set: dict of lists of labels for train/dev/test splits, keys=['train', 'dev', 'test']
-    :param batch_size: batch size for dataloaders
-    :param num_workers: number of workers for dataloaders
-    :return: set of dataloaders for train/dev/test splits, keys=['train', 'dev', 'test']
-    """
-    dataloaders = {}
-    for split in ['dev', 'test', 'train']:
-        if split not in text_set.keys():
-            continue
-        dataset = module.dataset_class(text_set[split], label_set[split], module.tokenizer, module.get_max_len())
-        if isinstance(dataset, ChunkDataset):
-            dataloaders[split] = DataLoader(
-                dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True,
-                collate_fn=chunk_collate_fn
-            )
-        else:
-            dataloaders[split] = DataLoader(
-                dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True
-            )
-
-    return dataloaders
-
-
-def _compute_output_name(args):
-    scheduler_str = '_warmup' if args.scheduler else ''
-    output_model_name = args.model_name + '_' + args.corpus + '_b' + str(args.batch) + \
-                        '_e' + str(args.epochs) + '_s' + str(args.seed) + '_lr' + str(args.lr) + scheduler_str
-    return output_model_name
+    parser.add_argument(
+        '--ckpt', type=str,
+        help='Path to a saved ckpt for continued training or evaluation'
+             'e.g. bert_hyperpartisan_b8_e20_s3456_lr3e-05--epoch=17.ckpt'
+    )
 
 
 def main(args) -> int:
@@ -113,12 +47,49 @@ def main(args) -> int:
     text_set, label_set, labeler = _load_data(args.data_in_dir, args.corpus)
     logger.debug("Loaded data")
     module = ModuleFactory.get_module(
-        args.model_name, len(labeler.labels), args.tmp_dir, args.device
+        args.model_name, labeler, args.tmp_dir, args.device
     )
-    dataloaders = create_dataloader(
+    dataloaders = _create_dataloader(
         module, text_set, label_set, args.batch, args.num_workers
     )
     output_model_name = _compute_output_name(args)
+
+    dataset_size = len(label_set['train'])  # to calculate the num of steps for warm up scheduler
+    logger.debug("Constructing task")
+    task = Classification(module, args.lr, args.scheduler, dataset_size, args.epochs, args.batch)
+
+    ckpt_config = ModelCheckpoint(
+        monitor="val_eval_metric_epoch",
+        verbose=False,
+        save_top_k=1,
+        save_weights_only=False,
+        mode='max',
+        every_n_epochs=1,
+        dirpath=args.data_out_dir,
+        filename=output_model_name + "--{epoch}"
+    )
+    tb_logger = TensorBoardLogger("tb_logs", name=output_model_name)
+    device_stats = DeviceStatsMonitor()
+    if args.ckpt:
+        trainer = Trainer(
+            logger=tb_logger,
+            callbacks=[ckpt_config, device_stats],
+            deterministic=True,
+            num_sanity_val_steps=0,
+            max_epochs=args.epochs,
+            resume_from_checkpoint=args.data_out_dir + args.ckpt
+        )
+    else:
+        trainer = Trainer(
+            logger=tb_logger,
+            callbacks=[ckpt_config, device_stats],
+            deterministic=True,
+            num_sanity_val_steps=0,
+            max_epochs=args.epochs
+        )
+
+    logger.debug("Started training %s", output_model_name)
+    trainer.fit(model=task, train_dataloaders=dataloaders['train'], val_dataloaders=dataloaders['dev'])
 
     logger.debug("Finished training")
     return 0

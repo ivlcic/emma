@@ -46,12 +46,8 @@ class BinaryLabeler(Labeler):
         self.encoder.fit(list(self.labels))
         super().fit()
 
-    @classmethod
-    def type_code(cls) -> str:
-        return 'binary'
-
     def get_type_code(self):
-        type(self).type_code()
+        return 'binary'
 
 
 class MulticlassLabeler(Labeler):
@@ -63,12 +59,8 @@ class MulticlassLabeler(Labeler):
         self.encoder.fit(list(self.labels))
         super().fit()
 
-    @classmethod
-    def type_code(cls) -> str:
-        return 'multiclass'
-
     def get_type_code(self):
-        type(self).type_code()
+        return 'multiclass'
 
 
 class MultilabelLabeler(Labeler):
@@ -80,16 +72,12 @@ class MultilabelLabeler(Labeler):
         self.encoder.fit([list(self.labels)])
         super().fit()
 
-    @classmethod
-    def type_code(cls) -> str:
-        return 'multilabel'
-
     def get_type_code(self):
-        type(self).type_code()
+        return 'multilabel'
 
 
 Labeler.valid_type_codes = [
-    BinaryLabeler.type_code(),
-    MultilabelLabeler.type_code(),
-    MulticlassLabeler.type_code()
+    BinaryLabeler().get_type_code(),
+    MultilabelLabeler().get_type_code(),
+    MulticlassLabeler().get_type_code()
 ]
