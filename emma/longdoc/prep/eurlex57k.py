@@ -4,7 +4,7 @@ import tqdm
 import json
 import logging
 
-from ...core.labels import MultiLabeler
+from ...core.labels import MultilabelLabeler
 from .utils import _download_file, _unzip_file, _remove_directory, _move_files, _write_csv
 
 logger = logging.getLogger('longdoc.prep.eurlex57k')
@@ -29,7 +29,7 @@ def read_eurlex_file(eur_file_path):
     return '\n'.join(sections), '\n'.join(inverted_sections), tags
 
 
-def _prep(dl_dir: str, split_dir: str):
+def _prep(dl_dir: str, split_dir: str) -> None:
     datasets_zip = 'http://nlp.cs.aueb.gr/software_and_datasets/EURLEX57K/datasets.zip'
     logger.info('Downloading')
     _download_file(datasets_zip, dl_dir)
@@ -44,15 +44,15 @@ def _prep(dl_dir: str, split_dir: str):
 
     text_set = {'train': [], 'dev': [], 'test': []}
     label_set = {'train': [], 'dev': [], 'test': []}
-    labeler = MultiLabeler()
+    labeler = MultilabelLabeler()
     for split in ['train', 'dev', 'test']:
         file_paths = glob.glob(os.path.join(split_dir, split, '*.json'))
         for file_path in tqdm.tqdm(sorted(file_paths)):
             text, inverted_text, tags = read_eurlex_file(file_path)
             text_set[split].append(text)
             label_set[split].append(tags)
-            labeler.extend(tags)
             os.remove(file_path)
+        labeler.collect(label_set[split])
         os.rmdir(os.path.join(split_dir, split))
 
     labeler.fit()
@@ -60,6 +60,6 @@ def _prep(dl_dir: str, split_dir: str):
     for split in ['train', 'dev', 'test']:
         vectorized_labels[split] = labeler.vectorize(label_set[split])
         _write_csv(
-            text_set[split], label_set[split], vectorized_labels[split], os.path.join(split_dir, split + '.csv')
+            text_set[split], label_set[split], os.path.join(split_dir, split + '.csv')
         )
     logger.info('Finished')

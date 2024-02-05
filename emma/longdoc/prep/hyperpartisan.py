@@ -11,7 +11,7 @@ from .utils import _download_file, _unzip_file, _write_csv
 logger = logging.getLogger('longdoc.prep.hyperpartisan')
 
 
-def read_hyperpartisan_data(hyper_file_path) -> Tuple[List[str], List[str]]:
+def read_hyperpartisan_data(hyper_file_path: str) -> Tuple[List[str], List[str]]:
     """
     Read a jsonl file for Hyperpartisan News Detection data and return lists of documents and labels
     :param hyper_file_path: path to a jsonl file
@@ -27,7 +27,7 @@ def read_hyperpartisan_data(hyper_file_path) -> Tuple[List[str], List[str]]:
     return documents, labels
 
 
-def _prep(dl_dir: str, split_dir: str):
+def _prep(dl_dir: str, split_dir: str) -> None:
     articles_zip = 'https://zenodo.org/record/1489920/files/articles-training-byarticle-20181122.zip'
     ground_truth_zip = 'https://zenodo.org/record/1489920/files/ground-truth-training-byarticle-20181122.zip'
     hp_splits_json = 'https://raw.githubusercontent.com/allenai/longformer/master/scripts/hp-splits.json'
@@ -53,20 +53,18 @@ def _prep(dl_dir: str, split_dir: str):
 
     text_set = {}
     label_set = {}
-    enc = BinaryLabeler()
+    labeler = BinaryLabeler()
     for split in ['train', 'dev', 'test']:
         file_path = os.path.join(split_dir, split + '.jsonl')
         text_set[split], label_set[split] = read_hyperpartisan_data(file_path)
-        enc.extend(label_set[split])
+        labeler.collect(label_set[split])
+    labeler.fit()
 
-    enc.fit()
     vectorized_labels = {}
     for split in ['train', 'dev', 'test']:
-        vectorized_labels[split] = enc.vectorize(label_set[split])
-
-    for split in ['train', 'dev', 'test']:
+        vectorized_labels[split] = labeler.vectorize(label_set[split])
         _write_csv(
-            text_set[split], label_set[split], vectorized_labels[split], os.path.join(split_dir, split + '.csv')
+            text_set[split], label_set[split], os.path.join(split_dir, split + '.csv')
         )
         os.remove(os.path.join(split_dir, split + '.jsonl'))
     logger.info('Finished')
