@@ -52,12 +52,13 @@ def _move_files(src_directory: str, dst_directory: str) -> None:
         shutil.move(src_path, dst_path)
 
 
-def _write_csv(texts: Iterable, labels: Iterable, csv_file_path: str, trans_dict: Optional[Dict[Any, Any]] = None):
+def _write_csv(texts: Iterable, labels: Iterable, csv_file_path: str, label_col_name: str = 'label',
+               trans_dict: Optional[Dict[Any, Any]] = None):
     df = pd.DataFrame({
         'text': texts,
-        'label': labels
+        label_col_name: labels
     })
     if trans_dict:
-        df['trans_label'] = df['label'].map(trans_dict)
+        df['trans_label'] = df[label_col_name].map(trans_dict)
 
     df.to_csv(csv_file_path, encoding='utf-8', index=False)

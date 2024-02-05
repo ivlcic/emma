@@ -188,13 +188,13 @@ class CommonArguments:
         have_cuda = torch.cuda.is_available()
         device = 'cuda' if have_cuda else 'cpu'
         parser.add_argument(
-            '-d', '--device', type=str, help='Torch device to use.', default=device
+            '--device', type=str, help='Torch device to use.', default=device
         )
 
     @classmethod
     def batch_size(cls, parser: ArgumentParser, default: int = 32):
         parser.add_argument(
-            '-b', '--batch', help='Batch size.', type=int, default=default
+            '--batch', help='Batch size.', type=int, default=default
         )
 
     @classmethod
@@ -204,15 +204,27 @@ class CommonArguments:
         )
 
     @classmethod
-    def train(cls, parser: ArgumentParser, batch_default: int = 32, max_seq_len_default: int = 512):
+    def num_workers(cls, parser: ArgumentParser, default: int = 0):
+        parser.add_argument(
+            '--num_workers', help='Number of data loader workers.', type=int, default=default
+        )
+
+    @classmethod
+    def train(cls, parser: ArgumentParser, batch_default: int = 32):
         cls.device(parser)
         cls.batch_size(parser, batch_default)
-        cls.max_seq_len(parser, max_seq_len_default)
         parser.add_argument(
-            '-l', '--learn_rate', help='Learning rate', type=float, default=2e-5
+            '--lr', help='Learning rate', type=float, default=2e-5
         )
         parser.add_argument(
-            '-e', '--epochs', help='Number of epochs.', type=int, default=20
+            '--epochs', help='Number of epochs.', type=int, default=20
+        )
+        parser.add_argument(
+            "--scheduler", action='store_true',
+            help='Use a warmup scheduler with warmup steps of 0.1 of the total training steps'
+        )
+        parser.add_argument(
+            "--seed", help="Random seed", type=int, default=2611
         )
 
     @classmethod

@@ -43,6 +43,7 @@ def _prep(dl_dir: str, split_dir: str) -> None:
         _remove_directory(dataset_inner_directory)
 
     text_set = {'train': [], 'dev': [], 'test': []}
+    inverted_set = {'train': [], 'dev': [], 'test': []}
     label_set = {'train': [], 'dev': [], 'test': []}
     labeler = MultilabelLabeler()
     for split in ['train', 'dev', 'test']:
@@ -50,6 +51,7 @@ def _prep(dl_dir: str, split_dir: str) -> None:
         for file_path in tqdm.tqdm(sorted(file_paths)):
             text, inverted_text, tags = read_eurlex_file(file_path)
             text_set[split].append(text)
+            inverted_set[split].append(inverted_text)
             label_set[split].append(tags)
             os.remove(file_path)
         labeler.collect(label_set[split])
@@ -61,5 +63,15 @@ def _prep(dl_dir: str, split_dir: str) -> None:
         vectorized_labels[split] = labeler.vectorize(label_set[split])
         _write_csv(
             text_set[split], label_set[split], os.path.join(split_dir, split + '.csv')
+        )
+    base_name = os.path.basename(split_dir)
+    parent_dir = os.path.dirname(split_dir)
+    inverted_dir = os.path.join(parent_dir, base_name + 'inv')
+    if not os.path.exists(inverted_dir):
+        os.makedirs(inverted_dir)
+
+    for split in ['train', 'dev', 'test']:
+        _write_csv(
+            inverted_set[split], label_set[split], os.path.join(inverted_dir, split + '.csv'), 'ml_label'
         )
     logger.info('Finished')

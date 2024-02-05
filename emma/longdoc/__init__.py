@@ -6,7 +6,7 @@ MODULE_DESCRIPTOR = ModuleDescriptor(
     'Efficient Classification of Long Documents Using Transformers',
     ModuleArguments([
         CommandArguments('prep', 'Prepares the data'),
-        #CommandArguments('train', 'Trains the model'),
+        CommandArguments('train', 'Trains the model'),
         #CommandArguments('test', 'Unit test the model'),
         #CommandArguments('infer', 'Infer the model'),
         #CommandArguments('unittest', 'Internal tests')

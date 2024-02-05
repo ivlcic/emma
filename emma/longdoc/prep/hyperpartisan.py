@@ -11,7 +11,7 @@ from .utils import _download_file, _unzip_file, _write_csv
 logger = logging.getLogger('longdoc.prep.hyperpartisan')
 
 
-def read_hyperpartisan_data(hyper_file_path: str) -> Tuple[List[str], List[str]]:
+def _read_hyperpartisan_data(hyper_file_path: str) -> Tuple[List[str], List[str]]:
     """
     Read a jsonl file for Hyperpartisan News Detection data and return lists of documents and labels
     :param hyper_file_path: path to a jsonl file
@@ -56,7 +56,7 @@ def _prep(dl_dir: str, split_dir: str) -> None:
     labeler = BinaryLabeler()
     for split in ['train', 'dev', 'test']:
         file_path = os.path.join(split_dir, split + '.jsonl')
-        text_set[split], label_set[split] = read_hyperpartisan_data(file_path)
+        text_set[split], label_set[split] = _read_hyperpartisan_data(file_path)
         labeler.collect(label_set[split])
     labeler.fit()
 
@@ -64,7 +64,7 @@ def _prep(dl_dir: str, split_dir: str) -> None:
     for split in ['train', 'dev', 'test']:
         vectorized_labels[split] = labeler.vectorize(label_set[split])
         _write_csv(
-            text_set[split], label_set[split], os.path.join(split_dir, split + '.csv')
+            text_set[split], label_set[split], os.path.join(split_dir, split + '.csv'), 'bin_label'
         )
         os.remove(os.path.join(split_dir, split + '.jsonl'))
     logger.info('Finished')

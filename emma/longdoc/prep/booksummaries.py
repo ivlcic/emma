@@ -78,5 +78,5 @@ def _prep(dl_dir: str, split_dir: str) -> None:
     for split in ['train', 'dev', 'test']:
         vectorized_labels[split] = labeler.vectorize(label_set[split])
         _write_csv(
-            text_set[split], label_set[split], os.path.join(split_dir, split + '.csv')
+            text_set[split], label_set[split], os.path.join(split_dir, split + '.csv'), 'ml_label'
         )
