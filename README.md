@@ -1,4 +1,4 @@
-This code is largely based on  [efficient-longdoc-classification](https://github.com/amazon-science/efficient-longdoc-classification)
+Parts of this code are largely based on  [efficient-longdoc-classification](https://github.com/amazon-science/efficient-longdoc-classification)
 
 ```
 @inproceedings{park-etal-2022-efficient,
