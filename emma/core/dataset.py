@@ -4,6 +4,7 @@ import pytextrank
 import random
 import torch
 from torch.utils.data import Dataset
+from transformers import BatchEncoding
 
 
 class TruncatedDataset(Dataset):
@@ -20,7 +21,7 @@ class TruncatedDataset(Dataset):
         text = str(self.text[index])
         text = " ".join(text.split())
 
-        inputs = self.tokenizer.encode_plus(
+        inputs = self.tokenizer(
             text=text,
             text_pair=None,
             add_special_tokens=True,
@@ -47,14 +48,14 @@ class TruncatedPlusTextRankDataset(Dataset):
         self.text = text
         self.labels = labels
         self.max_len = max_len
+        self.nlp = spacy.load("en_core_web_sm")
+        self.nlp.add_pipe("textrank")
 
     def __len__(self):
         return len(self.text)
 
     def apply_textrank(self, text):
-        nlp = spacy.load("en_core_web_sm")
-        nlp.add_pipe("textrank")
-        doc = nlp(text)
+        doc = self.nlp(text)
         num_phrases = len(list(doc._.phrases))
         num_sents = len(list(doc.sents))
         tr = doc._.textrank
@@ -79,7 +80,7 @@ class TruncatedPlusTextRankDataset(Dataset):
         text = str(self.text[index])
         text = " ".join(text.split())
 
-        inputs = self.tokenizer.encode_plus(
+        inputs = self.tokenizer(
             text=text,
             text_pair=None,
             add_special_tokens=True,
@@ -91,7 +92,7 @@ class TruncatedPlusTextRankDataset(Dataset):
             return_overflowing_tokens=True
         )
 
-        if inputs.get("overflowing_tokens"):
+        if len(inputs['input_ids']) > 1:
             # select key sentences if text is longer than max length
             selected_text = self.apply_textrank(text)
 
@@ -109,9 +110,9 @@ class TruncatedPlusTextRankDataset(Dataset):
         else:
             second_inputs = inputs
 
-        ids = (inputs['input_ids'], second_inputs['input_ids'])
-        mask = (inputs['attention_mask'], second_inputs['attention_mask'])
-        token_type_ids = (inputs["token_type_ids"], second_inputs["token_type_ids"])
+        ids = (inputs['input_ids'][0], second_inputs['input_ids'][0])
+        mask = (inputs['attention_mask'][0], second_inputs['attention_mask'][0])
+        token_type_ids = (inputs["token_type_ids"][0], second_inputs["token_type_ids"][0])
 
         return {
             'ids': torch.tensor(ids),
@@ -127,13 +128,13 @@ class TruncatedPlusRandomDataset(Dataset):
         self.text = text
         self.labels = labels
         self.max_len = max_len
+        self.nlp = spacy.load("en_core_web_sm")
 
     def __len__(self):
         return len(self.text)
 
     def select_random_sents(self, text):
-        nlp = spacy.load("en_core_web_sm")
-        doc = nlp(text)
+        doc = self.nlp(text)
         sents = list(doc.sents)
         running_length = 0
         sent_idxs = list(range(len(sents)))
@@ -156,28 +157,29 @@ class TruncatedPlusRandomDataset(Dataset):
         text = str(self.text[index])
         text = " ".join(text.split())
 
-        inputs = self.tokenizer.encode_plus(
+        inputs: BatchEncoding = self.tokenizer(
             text=text,
             text_pair=None,
             add_special_tokens=True,
             max_length=self.max_len,
             truncation=True,
             padding='max_length',
+            #return_tensors='pt',
             return_attention_mask=True,
             return_token_type_ids=True,
             return_overflowing_tokens=True
         )
-
-        if inputs.get("overflowing_tokens"):
+        if len(inputs['input_ids']) > 1:
             # select random sentences if text is longer than max length
             selected_text = self.select_random_sents(text)
-            second_inputs = self.tokenizer.encode_plus(
+            second_inputs = self.tokenizer(
                 text=selected_text,
                 text_pair=None,
                 add_special_tokens=True,
                 max_length=self.max_len,
                 truncation=True,
                 padding='max_length',
+                #return_tensors='pt',
                 return_attention_mask=True,
                 return_token_type_ids=True,
                 return_overflowing_tokens=True
@@ -185,16 +187,18 @@ class TruncatedPlusRandomDataset(Dataset):
         else:
             second_inputs = inputs
 
-        ids = (inputs['input_ids'], second_inputs['input_ids'])
-        mask = (inputs['attention_mask'], second_inputs['attention_mask'])
-        token_type_ids = (inputs["token_type_ids"], second_inputs["token_type_ids"])
+        ids = (inputs['input_ids'][0], second_inputs['input_ids'][0])
+        mask = (inputs['attention_mask'][0], second_inputs['attention_mask'][0])
+        token_type_ids = (inputs['token_type_ids'][0], second_inputs['token_type_ids'][0])
 
-        return {
+        result = {
             'ids': torch.tensor(ids),
             'mask': torch.tensor(mask),
             'token_type_ids': torch.tensor(token_type_ids),
             'labels': torch.tensor(self.labels[index])
         }
+        return result
+
 
 class ChunkDataset(Dataset):
     def __init__(self, text, labels, tokenizer, chunk_len=200, overlap_len=50):
