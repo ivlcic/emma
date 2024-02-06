@@ -28,14 +28,30 @@ python -m spacy download en_core_web_sm
 ```
 
 Prep the data:
-```
+```shell
 ./longdoc prep hyperpartisan eurlex 20news booksummaries
 ```
 
-Run the training:
-```
+Run the training as in original code and paper:
+```shell
 ./longdoc train --batch 8 --epochs 20 --lr 3e-05 --model_name bert --corpus hyperpartisan
 ./longdoc train --batch 8 --epochs 20 --lr 3e-05 --model_name bertplusrandom --corpus hyperpartisan
 ./longdoc train --batch 8 --epochs 20 --lr 3e-05 --model_name bertplustextrank --corpus hyperpartisan
 ./longdoc train --batch 8 --epochs 20 --lr 3e-05 --model_name tobert --corpus hyperpartisan
+```
+
+Or with multilingual models:
+- Multilingual BERT - cased
+```shell
+./longdoc train --batch 8 --epochs 20 --lr 3e-05 --model_name bertmc --corpus hyperpartisan
+./longdoc train --batch 8 --epochs 20 --lr 3e-05 --model_name bertmcplusrandom --corpus hyperpartisan
+./longdoc train --batch 8 --epochs 20 --lr 3e-05 --model_name bertmcplustextrank --corpus hyperpartisan
+./longdoc train --batch 8 --epochs 20 --lr 3e-05 --model_name tobertmc --corpus hyperpartisan
+```
+- XLM-RoBERTa-base
+```shell
+./longdoc train --batch 8 --epochs 20 --lr 3e-05 --model_name xlmrb --corpus hyperpartisan
+./longdoc train --batch 8 --epochs 20 --lr 3e-05 --model_name xlmrbplusrandom --corpus hyperpartisan
+./longdoc train --batch 8 --epochs 20 --lr 3e-05 --model_name xlmrbplustextrank --corpus hyperpartisan
+./longdoc train --batch 8 --epochs 20 --lr 3e-05 --model_name toxlmrb --corpus hyperpartisan
 ```
