@@ -22,15 +22,15 @@ class Classification(pl.LightningModule):
     """
     Pytorch Lightning module to train all models
     """
-    def __init__(self, module: Module, lr, scheduler, dataset_size, epochs, batch_size):
+    def __init__(self, module: Module, lr: float, scheduler: bool, dataset_size: int, epochs: int, batch_size: int):
         super().__init__()
 
-        self.model = module.model
+        self.model = module
         self.lr = lr
         self.scheduler = scheduler
         self.label_type = module.labeler.get_type_code()
         self.chunk = module.get_dataset_class() == ChunkDataset
-        self.num_labels = len(module.labeler.labels)
+        self.num_labels = module.labeler.num_labels
         self.dataset_size = dataset_size
         self.epochs = epochs
         self.batch_size = batch_size
@@ -87,10 +87,7 @@ class Classification(pl.LightningModule):
             y_hat = self.model(ids, mask, token_type_ids)
 
         if self.label_type == 'multilabel' or self.label_type == 'binary':
-            cls_representation = y_hat.last_hidden_state[:, 0, :]
-            # out = y_hat
-            loss = funct.binary_cross_entropy_with_logits(cls_representation, y_true.float())
-            # sigmoid + binary cross entropy loss
+            loss = funct.binary_cross_entropy_with_logits(y_hat, y_true.float())  # sigmoid + binary cross entropy loss
             y_pred = torch.sigmoid(y_hat)
         else:
             loss = funct.cross_entropy(y_hat, y_true)  # softmax + cross entropy loss
@@ -123,21 +120,21 @@ class Classification(pl.LightningModule):
         return outputs
 
     def _logout_metrics(self, prefix: str, y_true, y_pred):
-        logger.info("Epoch: %s", self.current_epoch)
-        logger.info("%saccuracy: %.5f", prefix, accuracy_score(y_true, y_pred))
+        self.model.logger.info("Epoch: %s", self.current_epoch)
+        self.model.logger.info("%saccuracy: %.5f", prefix, accuracy_score(y_true, y_pred))
         for average_type in ['micro', 'macro', 'weighted']:
             if self.label_type == 'binary' and not average_type == 'macro':
                 continue
-            logger.info(
+            self.model.logger.info(
                 '%s%s_precision: %.5f',
                 prefix, average_type, precision_score(y_true, y_pred, average=average_type)
             )
-            logger.info(
+            self.model.logger.info(
                 '%s%s_recall: %.5f',
                 prefix, average_type, recall_score(y_true, y_pred, average=average_type)
             )
-            logger.info(
-                '%s%s_recall: %.5f',
+            self.model.logger.info(
+                '%s%s_f1: %.5f',
                 prefix, average_type, f1_score(y_true, y_pred, average=average_type)
             )
 
@@ -172,7 +169,7 @@ class Classification(pl.LightningModule):
         return outputs
 
     def on_test_epoch_end(self):
-        self._validation_epoch_end(self.validation_step_outputs, "test_")
+        self._validation_epoch_end(self.test_step_outputs, "test_")
         self.test_step_outputs.clear()
 
     def configure_optimizers(self):

@@ -1,3 +1,4 @@
+import os.path
 from typing import Type, Optional
 
 import torch
@@ -29,6 +30,24 @@ model_name_map = {
 
 class Module(torch.nn.Module):
 
+    @staticmethod
+    def construct_logger(logger_name: str, logger_dir: Optional[str]) -> logging.Logger:
+        m_logger = logging.getLogger(logger_name)
+        m_logger.setLevel(logging.DEBUG)
+        m_formatter = logging.Formatter(
+            '%(asctime)s %(levelname)-7s %(name)s %(lineno)-3s: %(message)s', '%Y-%m-%d %H:%M:%S'
+        )
+        if not logger_dir:
+            m_file_handler = logging.FileHandler(logger_name + '.log')
+        else:
+            if not os.path.exists(logger_dir):
+                os.makedirs(logger_dir)
+            m_file_handler = logging.FileHandler(os.path.join(logger_dir, logger_name + '.log'))
+        m_file_handler.setLevel(logging.INFO)
+        m_file_handler.setFormatter(m_formatter)
+        m_logger.addHandler(m_file_handler)
+        return m_logger
+
     def __init__(self, model_name: str, labeler: Labeler, cache_model_dir: str, dev: Optional[str]):
         super().__init__()
         if dev is None:
@@ -38,12 +57,15 @@ class Module(torch.nn.Module):
         else:
             device = torch.device(dev)
             logger.info('Device was set [%s] will use [%s].', dev, device)
+        self.logger = logger
         self.device = device
         self.model_name = model_name
         self.labeler = labeler
         self.cache_model_dir = cache_model_dir
         self.dataset_class = TruncatedDataset
         self.has_additional_text = False
+        self.dropout_rate = 0.0
+        self.dropout = torch.nn.Dropout(self.dropout_rate)
         self.model = None
         self.tokenizer = None
 
@@ -59,6 +81,10 @@ class Module(torch.nn.Module):
     def set_has_additional_text(self, has_additional_text: bool):
         self.has_additional_text = has_additional_text
 
+    def set_dropout(self, dropout_rate: float):
+        self.dropout_rate = dropout_rate
+        self.dropout = torch.nn.Dropout(dropout_rate)
+
 
 class TransEnc(Module):
 
@@ -70,12 +96,8 @@ class TransEnc(Module):
             raise RuntimeError(f'Only {TransEnc._allowed_models} are allowed!')
         self.model: PreTrainedModel = AutoModel.from_pretrained(model_name, cache_dir=cache_model_dir)
         self.tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_model_dir)
-        self.dropout = torch.nn.Dropout(0.0)
-        self.classifier = torch.nn.Linear(768, len(self.labeler.labels))
+        self.classifier = torch.nn.Linear(768, self.labeler.num_labels)
         self.model.to(self.device)
-
-    def set_dropout(self, dropout_rate: float):
-        self.dropout = torch.nn.Dropout(dropout_rate)
 
     def forward(self, ids, mask, token_type_ids):
 
@@ -103,6 +125,7 @@ class TransEncPlus(TransEnc):
         super().__init__(model_name, labeler, cache_model_dir, device)
         self.set_has_additional_text(True)
         self.set_dataset_class(TruncatedPlusRandomDataset)
+        self.classifier = torch.nn.Linear(768*2, self.labeler.num_labels)
 
 
 class ToTransEncModel(Module):
@@ -112,7 +135,7 @@ class ToTransEncModel(Module):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_model_dir)
         self.trans = torch.nn.TransformerEncoderLayer(d_model=768, nhead=2)
         self.fc = torch.nn.Linear(768, 30)
-        self.classifier = torch.nn.Linear(30, len(self.labeler.labels))
+        self.classifier = torch.nn.Linear(30, self.labeler.num_labels)
         self.dataset_class = ChunkDataset
         self.model.to(self.device)
 
@@ -147,7 +170,7 @@ class LongformerClass(Module):
             cache_dir=cache_model_dir
         )
         self.classifier = LongformerClassificationHead(
-            hidden_size=768, hidden_dropout_prob=0.1, num_labels=len(self.labeler.labels)
+            hidden_size=768, hidden_dropout_prob=self.dropout, num_labels=self.labeler.num_labels
         )
         self.tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_model_dir)
         self.dataset_class = TruncatedDataset
@@ -172,11 +195,11 @@ class LongformerClassificationHead(torch.nn.Module):
     # /modeling_longformer.html#LongformerForSequenceClassification
     """Head for sentence-level classification tasks."""
 
-    def __init__(self, hidden_size, hidden_dropout_prob, num_labels):
+    def __init__(self, hidden_size: int, hidden_dropout_prob: torch.nn.Dropout, num_labels: int):
         # config from transformers.LongformerConfig.from_pretrained('allenai/longformer-base-4096')
         super().__init__()
         self.dense = torch.nn.Linear(hidden_size, hidden_size)
-        self.dropout = torch.nn.Dropout(hidden_dropout_prob)
+        self.dropout = hidden_dropout_prob
         self.out_proj = torch.nn.Linear(hidden_size, num_labels)
 
     # noinspection PyUnusedLocal
@@ -193,7 +216,8 @@ class LongformerClassificationHead(torch.nn.Module):
 class ModuleFactory:
     """Factory for creating model instances."""
     @staticmethod
-    def get_module(model_name: str, labeler: Labeler, cache_model_dir: str, device: Optional[str]) -> Module:
+    def get_module(model_name: str, labeler: Labeler, cache_model_dir: str, device: Optional[str],
+                   log: Optional[str]) -> Module:
         if model_name not in valid_model_names:
             raise RuntimeError(f'Model {model_name} should be one of {valid_model_names}!')
         module: Module
@@ -217,6 +241,10 @@ class ModuleFactory:
         else:
             logger.info('Loading %s model for %s.', TransEnc, model_name)
             module = TransEnc(model_name_map[model_name], labeler, cache_model_dir, device)
+
+        if log:
+            module.logger = Module.construct_logger(log, None)
+
         logger.info(
             'Loaded %s model with tokenizer %s for %s and max len %s.',
             module.model_name, module.tokenizer.name_or_path, module.dataset_class, module.get_max_len())

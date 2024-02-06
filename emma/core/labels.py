@@ -14,6 +14,7 @@ class Labeler(ABC):
         self.encoder = encoder
         self.labels = set(labels) if labels else set()
         self.computed = False
+        self.num_labels = len(self.labels)
 
     def collect(self, labels: List[Any]):
         for x in labels:
@@ -24,7 +25,7 @@ class Labeler(ABC):
 
     def fit(self):
         self.computed = True
-        logger.debug('Total number of labels: %s', len(self.labels))
+        self.num_labels = len(self.labels)
 
     @abstractmethod
     def get_type_code(self):
@@ -45,6 +46,10 @@ class BinaryLabeler(Labeler):
     def fit(self):
         self.encoder.fit(list(self.labels))
         super().fit()
+        if self.num_labels != 2:
+            raise ValueError('Invalid data was passed into Labeler collect. Must have at least two values for label!')
+        self.num_labels = 1  # for binary classification we have a single label with two values
+        logger.debug('Total number of labels: %s', self.num_labels)
 
     def get_type_code(self):
         return 'binary'
@@ -58,6 +63,7 @@ class MulticlassLabeler(Labeler):
     def fit(self):
         self.encoder.fit(list(self.labels))
         super().fit()
+        logger.debug('Total number of labels: %s', self.num_labels)
 
     def get_type_code(self):
         return 'multiclass'
@@ -71,6 +77,7 @@ class MultilabelLabeler(Labeler):
     def fit(self):
         self.encoder.fit([list(self.labels)])
         super().fit()
+        logger.debug('Total number of labels: %s', self.num_labels)
 
     def get_type_code(self):
         return 'multilabel'

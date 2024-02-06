@@ -6,7 +6,7 @@ import textwrap
 import torch
 
 from argparse import ArgumentParser
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 logger = logging.getLogger('core.args')
 
@@ -210,21 +210,25 @@ class CommonArguments:
         )
 
     @classmethod
-    def train(cls, parser: ArgumentParser, batch_default: int = 32):
+    def train(cls, parser: ArgumentParser, batch: Optional[int] = 32, lr: Optional[float] = 2e-5,
+              epochs: Optional[int] = 20, seed: Optional[int] = 2611, dropout: Optional[float] = 0.1):
         cls.device(parser)
-        cls.batch_size(parser, batch_default)
+        cls.batch_size(parser, batch)
         parser.add_argument(
-            '--lr', help='Learning rate', type=float, default=2e-5
+            '--lr', help='Learning rate', type=float, default=lr
         )
         parser.add_argument(
-            '--epochs', help='Number of epochs.', type=int, default=20
+            '--epochs', help='Number of epochs.', type=int, default=epochs
+        )
+        parser.add_argument(
+            '--dropout', help='Dropout.', type=float, default=dropout
         )
         parser.add_argument(
             "--scheduler", action='store_true',
             help='Use a warmup scheduler with warmup steps of 0.1 of the total training steps'
         )
         parser.add_argument(
-            "--seed", help="Random seed", type=int, default=2611
+            "--seed", help="Random seed", type=int, default=seed
         )
 
     @classmethod
