@@ -1,4 +1,4 @@
-This code is in large degree based on  [efficient-longdoc-classification](https://github.com/amazon-science/efficient-longdoc-classification)
+This code is largely based on  [efficient-longdoc-classification](https://github.com/amazon-science/efficient-longdoc-classification)
 
 ```
 @inproceedings{park-etal-2022-efficient,
@@ -17,9 +17,9 @@ This code is in large degree based on  [efficient-longdoc-classification](https:
 }
 ```
 
-I have refactored teh code to support other datasets and pre-trained models more easily, mainly to support multilingual models and research.
+I have refactored the code to support other datasets and pre-trained models more easily, mainly to support multilingual models and research.
 
-To get started just run
+To get started, just run
 ```shell
 python -m venv .venv
 source .venv/bin/activate
