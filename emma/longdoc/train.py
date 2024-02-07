@@ -27,13 +27,13 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
     )
     CommonArguments.num_workers(parser)
     parser.add_argument(
-        '--corpus', help=f'Corpora files to train on {corpora}.'
+        '--corpus', required=True, help=f'Corpora files to train / validate on {corpora}.'
     )
     parser.add_argument(
         '--model_name', type=str, required=True, help=f'Model name: {valid_model_names}'
     )
     parser.add_argument(
-        '--run_id', type=int, required=True, help=f'Run id for marking consecutive runs.', default=0
+        '--run_id', type=int, help=f'Run id for marking consecutive runs.', default=0
     )
     parser.add_argument(
         '--ckpt', type=str,

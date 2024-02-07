@@ -1,6 +1,5 @@
 import numpy as np
 import spacy
-import pytextrank
 import random
 import torch
 from torch.utils.data import Dataset
@@ -54,6 +53,7 @@ class TruncatedPlusTextRankDataset(Dataset):
     def __len__(self):
         return len(self.text)
 
+    # noinspection PyProtectedMember
     def apply_textrank(self, text):
         doc = self.nlp(text)
         num_phrases = len(list(doc._.phrases))
@@ -164,7 +164,7 @@ class TruncatedPlusRandomDataset(Dataset):
             max_length=self.max_len,
             truncation=True,
             padding='max_length',
-            #return_tensors='pt',
+            # return_tensors='pt',
             return_attention_mask=True,
             return_token_type_ids=True,
             return_overflowing_tokens=True
@@ -179,7 +179,7 @@ class TruncatedPlusRandomDataset(Dataset):
                 max_length=self.max_len,
                 truncation=True,
                 padding='max_length',
-                #return_tensors='pt',
+                # return_tensors='pt',
                 return_attention_mask=True,
                 return_token_type_ids=True,
                 return_overflowing_tokens=True
@@ -211,72 +211,10 @@ class ChunkDataset(Dataset):
     def __len__(self):
         return len(self.labels)
 
-    def chunk_tokenizer(self, tokenized_data, targets):
-        input_ids_list = []
-        attention_mask_list = []
-        token_type_ids_list = []
-        targets_list = []
-
-        previous_input_ids = tokenized_data["input_ids"]
-        previous_attention_mask = tokenized_data["attention_mask"]
-        previous_token_type_ids = tokenized_data["token_type_ids"]
-        remain = tokenized_data.get("overflowing_tokens")
-
-        input_ids_list.append(torch.tensor(previous_input_ids, dtype=torch.long))
-        attention_mask_list.append(torch.tensor(previous_attention_mask, dtype=torch.long))
-        token_type_ids_list.append(torch.tensor(previous_token_type_ids, dtype=torch.long))
-        targets_list.append(torch.tensor(targets, dtype=torch.long))
-
-        if remain:  # if there is any overflowing tokens
-            # remain = torch.tensor(remain, dtype=torch.long)
-            idxs = range(len(remain) + self.chunk_len)
-            idxs = idxs[(self.chunk_len - self.overlap_len - 2)
-                        ::(self.chunk_len - self.overlap_len - 2)]
-            input_ids_first_overlap = previous_input_ids[-(
-                    self.overlap_len + 1):-1]
-            start_token = [101]
-            end_token = [102]
-
-            for i, idx in enumerate(idxs):
-                # noinspection PyUnboundLocalVariable
-                if i == 0:
-                    input_ids = input_ids_first_overlap + remain[:idx]
-                elif i == len(idxs):
-                    input_ids = remain[idx:]
-                elif previous_idx >= len(remain):
-                    break
-                else:
-                    input_ids = remain[(previous_idx - self.overlap_len):idx]
-
-                previous_idx = idx
-
-                nb_token = len(input_ids) + 2
-                attention_mask = np.ones(self.chunk_len)
-                attention_mask[nb_token:self.chunk_len] = 0
-                token_type_ids = np.zeros(self.chunk_len)
-                input_ids = start_token + input_ids + end_token
-                if self.chunk_len - nb_token > 0:
-                    padding = np.zeros(self.chunk_len - nb_token)
-                    input_ids = np.concatenate([input_ids, padding])
-
-                input_ids_list.append(torch.tensor(input_ids, dtype=torch.long))
-                attention_mask_list.append(torch.tensor(attention_mask, dtype=torch.long))
-                token_type_ids_list.append(torch.tensor(token_type_ids, dtype=torch.long))
-                targets_list.append(torch.tensor(targets, dtype=torch.long))
-
-        return ({
-            'ids': input_ids_list,
-            'mask': attention_mask_list,
-            'token_type_ids': token_type_ids_list,
-            'targets': targets_list,
-            'len': [torch.tensor(len(targets_list), dtype=torch.long)]
-        })
-
     def __getitem__(self, index):
         text = " ".join(str(self.text[index]).split())
-        targets = self.labels[index]
 
-        data = self.tokenizer.encode_plus(
+        data = self.tokenizer(
             text=text,
             text_pair=None,
             add_special_tokens=True,
@@ -287,5 +225,21 @@ class ChunkDataset(Dataset):
             return_overflowing_tokens=True
         )
 
-        chunk_token = self.chunk_tokenizer(data, targets)
-        return chunk_token
+        ids = []
+        mask = []
+        token_type_ids = []
+        targets = []
+        for i, idx in enumerate(data['input_ids']):
+            ids.append(torch.tensor(data['input_ids'][i], dtype=torch.long))
+            mask.append(torch.tensor(data["attention_mask"][i], dtype=torch.long))
+            token_type_ids.append(torch.tensor(data["token_type_ids"][i], dtype=torch.long))
+            targets.append(torch.tensor(self.labels[index], dtype=torch.long))
+
+        result = ({
+            'ids': ids,
+            'mask': mask,
+            'token_type_ids': token_type_ids,
+            'targets': targets,
+            'len': [torch.tensor(len(targets), dtype=torch.long)]
+        })
+        return result

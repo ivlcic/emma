@@ -34,10 +34,13 @@ Prep the data:
 
 Run the training as in original code and paper:
 ```shell
-./longdoc train --batch 8 --epochs 20 --lr 3e-05 --model_name bert --corpus hyperpartisan
-./longdoc train --batch 8 --epochs 20 --lr 3e-05 --model_name bertplusrandom --corpus hyperpartisan
-./longdoc train --batch 8 --epochs 20 --lr 3e-05 --model_name bertplustextrank --corpus hyperpartisan
-./longdoc train --batch 8 --epochs 20 --lr 3e-05 --model_name tobert --corpus hyperpartisan
+for i in {0..4}; do
+./longdoc train --batch 8 --epochs 20 --lr 3e-05 --run_id ${i} --corpus hyperpartisan --model_name bert 
+./longdoc train --batch 8 --epochs 20 --lr 3e-05 --run_id ${i} --corpus hyperpartisan --model_name bertplusrandom 
+./longdoc train --batch 8 --epochs 20 --lr 3e-05 --run_id ${i} --corpus hyperpartisan --model_name bertplustextrank 
+./longdoc train --batch 8 --epochs 20 --lr 3e-05 --run_id ${i} --corpus hyperpartisan --model_name tobert 
+./longdoc train --batch 8 --epochs 20 --lr 3e-05 --run_id ${i} --corpus hyperpartisan --model_name longformer
+done
 ```
 
 Or with multilingual models:
