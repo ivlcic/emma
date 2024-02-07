@@ -97,7 +97,7 @@ def _create_dataloader(module: Module, text_set, label_set, batch_size, num_work
 
 def _compute_output_name(args):
     scheduler_str = '_warmup' if args.scheduler else ''
-    output_model_name = args.model_name + '_' + args.corpus + '_b' + str(args.batch)
+    output_model_name = args.model_name + '_' + args.corpus + '_x' + str(args.run_id) + '_b' + str(args.batch)
     output_model_name += '_e' + str(args.epochs) + '_s' + str(args.seed) + '_lr' + str(args.lr)
     output_model_name += scheduler_str
     return output_model_name
