@@ -23,7 +23,7 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
     CommonArguments.result_dir(module_name, parser, ('-o', '--data_out_dir'))
     CommonArguments.tmp_dir(module_name, parser, ('-t', '--tmp_dir'))
     CommonArguments.train(
-        parser, batch=8, epochs=0, lr=3e-5
+        parser, batch=8, epochs=0, lr=3e-5, seed=2611
     )
     CommonArguments.num_workers(parser)
     parser.add_argument(
@@ -31,6 +31,9 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
     )
     parser.add_argument(
         '--model_name', type=str, required=True, help=f'Model name: {valid_model_names}'
+    )
+    parser.add_argument(
+        '--run_id', type=int, required=True, help=f'Run id for marking consecutive runs.', default=0
     )
     parser.add_argument(
         '--ckpt', type=str,
