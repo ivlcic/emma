@@ -25,7 +25,7 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
     CommonArguments.result_dir(module_name, parser, ('-o', '--data_out_dir'))
     CommonArguments.tmp_dir(module_name, parser, ('-t', '--tmp_dir'))
     CommonArguments.train(
-        parser, batch=8, epochs=0, lr=3e-5, seed=2611
+        parser, batch=8, epochs=0, lr=3e-5, seed=None
     )
     CommonArguments.num_workers(parser)
     parser.add_argument(
