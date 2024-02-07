@@ -115,14 +115,17 @@ def main(args) -> int:
     )
 
     for _ckpt in range(len(trainer.checkpoint_callbacks)):
+        module.logger.info("Testing")
         logger.info("Testing")
         paths = trainer.checkpoint_callbacks[_ckpt]
         ckpt_path = trainer.checkpoint_callbacks[_ckpt].best_model_path
+        module.logger.info("Checkpoint path: {}".format(ckpt_path))
         logger.info("Checkpoint path: {}".format(ckpt_path))
         metrics = trainer.test(dataloaders=dataloaders['test'], ckpt_path=ckpt_path)
         for metric in metrics:
             for key in metric:
                 module.logger.info("%s: %.5f", key, metric[key])
+                logger.info("%s: %.5f", key, metric[key])
 
         for split in ['dev', 'test']:
             logging.info("Evaluating on long documents in the {} set only".format(split))
@@ -130,6 +133,7 @@ def main(args) -> int:
             for metric in metrics:
                 for key in metric:
                     module.logger.info("long_%s_%s: %.5f", split, key, metric[key])
+                    logger.info("long_%s_%s: %.5f", split, key, metric[key])
 
     logger.debug("Finished training")
     return 0
