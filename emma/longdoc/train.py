@@ -1,7 +1,9 @@
 import os
+import random
 import logging
 
 from argparse import ArgumentParser
+
 from lightning import seed_everything, Trainer
 from lightning.pytorch.callbacks import ModelCheckpoint, DeviceStatsMonitor
 from lightning.pytorch.loggers import TensorBoardLogger
@@ -46,7 +48,9 @@ def main(args) -> int:
     if args.corpus not in corpora:
         raise RuntimeError(f'Corpus {args.corpus} should be one of {corpora}')
 
-    logger.debug("Starting training")
+    if args.seed is None:
+        args.seed = random.randint(1000, 9999)
+    logger.debug("Starting training using seed [%s]", args.seed)
     seed_everything(args.seed, workers=True)
     logger.debug("Loading data")
 
