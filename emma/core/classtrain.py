@@ -41,7 +41,7 @@ class Classification(pl.LightningModule):
         elif self.label_type == 'multilabel':
             self.eval_metric = F1Score(task=self.label_type, num_classes=self.num_labels, average='micro')
         else:
-            self.eval_metric = Accuracy(task=self.label_type, num_classes=self.num_labels, multiclass=True)
+            self.eval_metric = Accuracy(task=self.label_type, num_classes=self.num_labels, average='macro')
 
     def _log_step(self, prefix, y_pred, y_true, loss, start):
         self.log(
