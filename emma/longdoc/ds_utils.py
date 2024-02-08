@@ -1,7 +1,8 @@
 import os
-
-import pandas as pd
+import ast
 import torch
+import pandas as pd
+
 from torch.utils.data import DataLoader
 
 from ..core.dataset import ChunkDataset
@@ -24,6 +25,7 @@ def _load_data(split_dir, corpus: str):
             if 'label' in col:
                 if col.startswith('ml_'):
                     labeler = MultilabelLabeler()
+                    data['ml_label'] = data['ml_label'].apply(lambda x: ast.literal_eval(x))
                 if col.startswith('mc_'):
                     labeler = MulticlassLabeler()
                 label_set[split] = data[col].tolist()
