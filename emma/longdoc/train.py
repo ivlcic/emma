@@ -1,5 +1,6 @@
 import os
 import random
+import torch
 import logging
 
 from argparse import ArgumentParser
@@ -47,7 +48,8 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
 def main(args) -> int:
     if args.corpus not in corpora:
         raise RuntimeError(f'Corpus {args.corpus} should be one of {corpora}')
-
+    # https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html#torch.set_float32_matmul_precision
+    torch.set_float32_matmul_precision('high')
     if args.seed is None:
         args.seed = random.randint(1000, 9999)
     logger.debug("Starting training using seed [%s]", args.seed)
