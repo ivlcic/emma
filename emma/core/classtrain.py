@@ -39,7 +39,7 @@ class Classification(pl.LightningModule):
         if self.label_type == 'binary':
             self.eval_metric = Accuracy(task=self.label_type, num_classes=self.num_labels)
         elif self.label_type == 'multilabel':
-            self.eval_metric = F1Score(task=self.label_type, num_classes=self.num_labels, average='micro')
+            self.eval_metric = F1Score(task=self.label_type, num_labels=self.num_labels, average='micro')
         else:
             self.eval_metric = Accuracy(task=self.label_type, num_classes=self.num_labels, average='macro')
 
