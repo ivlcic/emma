@@ -16,7 +16,7 @@ from ..core.models import valid_model_names, ModuleFactory
 logger = logging.getLogger('longdoc.prep')
 
 corpora = {
-    'hyperpartisan', 'eurlex57k', '20news', 'booksummaries'
+    'hyperpartisan', 'eurlex', 'eurlexinv', '20news', 'booksummaries'
 }
 
 

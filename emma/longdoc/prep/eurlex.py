@@ -7,7 +7,7 @@ import logging
 from ...core.labels import MultilabelLabeler
 from .utils import _download_file, _unzip_file, _remove_directory, _move_files, _write_csv
 
-logger = logging.getLogger('longdoc.prep.eurlex57k')
+logger = logging.getLogger('longdoc.prep.eurlex')
 
 
 def read_eurlex_file(eur_file_path):
