@@ -50,11 +50,11 @@ class Classification(pl.LightningModule):
         )
         self.log(
             prefix + 'loss', loss,
-            on_step=False, on_epoch=True, prog_bar=True, logger=True
+            on_step=True, on_epoch=True, prog_bar=True, logger=True
         )
         self.log(
             prefix + 'time', time.time() - start,
-            on_step=False, on_epoch=True, prog_bar=True, logger=True
+            on_step=True, on_epoch=True, prog_bar=True, logger=True
         )
 
     def _compute_true_pred_loss(self, batch):
