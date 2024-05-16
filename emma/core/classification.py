@@ -14,7 +14,7 @@ from transformers.optimization import get_linear_schedule_with_warmup
 from .dataset import ChunkDataset
 from .models import Module
 
-logger = logging.getLogger('core.classtrain')
+logger = logging.getLogger('core.class')
 
 
 # noinspection SpellCheckingInspection
