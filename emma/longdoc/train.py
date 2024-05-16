@@ -10,7 +10,7 @@ from lightning.pytorch.callbacks import ModelCheckpoint, DeviceStatsMonitor
 from lightning.pytorch.loggers import TensorBoardLogger
 
 from .ds_utils import _load_data, _create_dataloader, _compute_output_name, _get_long_texts_and_labels
-from ..core.classtrain import Classification
+from ..core.classification import Classification
 from ..core.args import CommonArguments
 from ..core.models import valid_model_names, ModuleFactory
 

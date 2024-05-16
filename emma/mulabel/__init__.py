@@ -5,11 +5,11 @@ MODULE_DESCRIPTOR = ModuleDescriptor(
     'mulabel',
     'Multilabel classification module',
     ModuleArguments([
-        CommandArguments('prep', 'Prepares the data'),
-        CommandArguments('split', 'Splits the data'),
-        CommandArguments('train', 'Trains the model'),
-        CommandArguments('test', 'Unit test the model'),
-        CommandArguments('infer', 'Infer the model'),
-        CommandArguments('unittest', 'Internal tests')
+        CommandArguments('prep', 'Prepares the data', multi_action=True),
+        #CommandArguments('split', 'Splits the data'),
+        #CommandArguments('train', 'Trains the model'),
+        #CommandArguments('test', 'Unit test the model'),
+        #CommandArguments('infer', 'Infer the model'),
+        #CommandArguments('unittest', 'Internal tests')
     ])
 )

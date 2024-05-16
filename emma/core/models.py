@@ -11,7 +11,7 @@ from transformers import LongformerModel, PreTrainedModel, AutoTokenizer, PreTra
 from .dataset import TruncatedDataset, TruncatedPlusRandomDataset, TruncatedPlusTextRankDataset, ChunkDataset
 from .labels import Labeler
 
-logger = logging.getLogger('longdoc.prep.booksummaries')
+logger = logging.getLogger('core.models')
 
 valid_model_names = {
     'bert', 'bertplustextrank', 'bertplusrandom', 'tobert',
