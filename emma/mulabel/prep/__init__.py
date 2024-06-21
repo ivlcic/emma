@@ -9,7 +9,6 @@ from typing import Dict, Any, List
 from transformers import AutoTokenizer
 
 from ...core.walker import Params, State, walk_range
-#from .utils import _download_file, _unzip_file, _remove_directory, _move_files, _write_csv
 from ...core.args import CommonArguments
 
 logger = logging.getLogger('mulabel.prep')
@@ -33,44 +32,37 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
     )
 
 
-def append_stats(data: Dict[str, List[Any]], article, title: str, body: str,
-                 bert_tokenizer, deb_tokenizer, xlmr_tokenizer) -> None:
-    text = title + '\n\n' + body
-    tok_s = 0
-    sent = 0
-    words = 0
-
-    if title:
-        tok_s += article['body']['stats']['sp_t']
-        sent += article['body']['stats']['sent']
-        words += article['body']['stats']['w_t']
-    if body:
-        tok_s += article['body']['stats']['sp_t']
-        sent += article['body']['stats']['sent']
-        words += article['body']['stats']['w_t']
-
-    data['sent'].append(sent)
-    data['words'].append(words)
-    data['tok_b'].append(len(bert_tokenizer.tokenize(text)))
-    data['tok_d'].append(len(deb_tokenizer.tokenize(text)))
-    data['tok_x'].append(len(xlmr_tokenizer.tokenize(text)))
-    data['tok_s'].append(tok_s)
-    data['chrs'].append(len(text))
+def get_parent_labels(arg) -> Dict[str, Any]:
+    parent_df = pd.read_csv(os.path.join(arg.data_out_dir, f'label_parent.csv'), encoding='utf-8')
+    rows = parent_df.to_dict(orient='records')
+    parents = {}
+    for index, row in enumerate(rows):
+        parents[row['uuid']] = {'country': row['country'], 'name': row['name'], 'c_uuid': row['c_uuid']}
+    return parents
 
 
 def prep_gather_labels(arg) -> int:
+    """
+    ./mulabel prep gather_labels -i /home/nikola/projects/neuroticla/result/corpus -s 2023-12-02 -e 2023-12-03
+    """
     logger.debug("Starting data gathering to simplify formats.")
     params = Params(arg.start_date, arg.end_date, arg.data_in_dir)
-
+    parent_labels = get_parent_labels(arg)
     tags: Dict[str, Dict[str, Any]] = {}
+    missing_parents = set()
     num_unknown = {'name': 0}
 
     def callback(s: State, article: Dict[str, Any]) -> int:
-        if not 'tags' in article:
-            return 0
+        if 'tags' not in article:
+            return 0 ##'52ecd827-90c3-11ee-b653-2fe3bf8a9fb0'
 
         for t in article['tags']:
             t_uuid = t['uuid']
+            t_country = None
+            if 'parent' not in t:
+                if t_uuid not in parent_labels:
+                    missing_parents.add(t_uuid)
+                continue
             t_part = t_uuid.split('-')[0]
             if t_part in tags:
                 if tags[t_part]['uuid'] != t_uuid:
@@ -80,25 +72,33 @@ def prep_gather_labels(arg) -> int:
                 else:
                     tags[t_part]['count'] += 1
             else:
+                parent_id = t['parent']['uuid']  # t['tags'][0]['refUuid']
+                if parent_id in parent_labels:
+                    t_country = parent_labels[parent_id]['country']
+                if t_country is None:
+                    t_country = article['country']['name']
                 tag = {
                     'suuid': t_part,
                     'uuid': t_uuid,
-                    'country': article['country']['name'],
-                    'count': 1
+                    'country': t_country,
+                    'count': 1,
+                    'parent': parent_id
                 }
                 if 'name' in t:
                     tag['name'] = t['name']
                 else:
                     tag['name'] = f'Unknown-{num_unknown["name"]}'
                     num_unknown['name'] += 1
-                if 'parent' in t:
-                    tag['parent'] = t['parent']['uuid']
-                else:
-                    tag['parent'] = ''
+
                 tags[t_part] = tag
         return 1
 
-    state = walk_range(params, callback)
+    walk_range(params, callback)
+
+    # write missing parent labels
+    with open(os.path.join(arg.data_out_dir, f'missing_parents.csv'), 'w') as file:
+        for item in missing_parents:
+            file.write(str(item) + '\n')
 
     tags_csv = {
         'suuid': [],
@@ -123,10 +123,35 @@ def prep_gather_labels(arg) -> int:
     return 0
 
 
+def append_stats(data: Dict[str, List[Any]], article, title: str, body: str,
+                 bert_tokenizer, deb_tokenizer, xlmr_tokenizer) -> None:
+    text = title + '\n\n' + body
+    tok_s = 0
+    sent = 0
+    words = 0
+
+    if title:
+        tok_s += article['title']['stats']['sp_t']
+        sent += article['title']['stats']['sent']
+        words += article['title']['stats']['w_t']
+    if body:
+        tok_s += article['body']['stats']['sp_t']
+        sent += article['body']['stats']['sent']
+        words += article['body']['stats']['w_t']
+
+    data['sent'].append(sent)
+    data['words'].append(words)
+    data['tok_b'].append(len(bert_tokenizer.tokenize(text)))
+    data['tok_d'].append(len(deb_tokenizer.tokenize(text)))
+    data['tok_x'].append(len(xlmr_tokenizer.tokenize(text)))
+    data['tok_s'].append(tok_s)
+    data['chrs'].append(len(text))
+
+
 def prep_gather(arg) -> int:
-    '''
+    """
     ./mulabel prep gather -i /home/nikola/projects/neuroticla/result/corpus -s 2023-12-02 -e 2023-12-03
-    '''
+    """
     logger.debug("Starting data gathering to simplify format.")
     params = Params(arg.start_date, arg.end_date, arg.data_in_dir)
     cache_dir = CommonArguments._package_path('tmp', 'prep')
@@ -154,6 +179,8 @@ def prep_gather(arg) -> int:
         'tok_s': [],
         'chrs': [],
         'path': [],
+        'label_co': [],
+        'n_labels': [],
         'labels': [],
         'title': [],
         'url': []
@@ -210,6 +237,8 @@ def prep_gather(arg) -> int:
             data['labels'].append(list(tags))
         else:
             data['labels'].append([])
+        data['n_labels'] = len(data['labels'])
+
         if 'url' in article:
             data['url'].append(article['url'])
         else:
@@ -225,7 +254,7 @@ def prep_gather(arg) -> int:
     )
 
     df = pd.DataFrame(data)
-    df = df.iloc[::-1]
+    df = df.iloc[::-1]  # reverse sort, because we collect backwards
     df.to_csv(os.path.join(arg.data_out_dir, f'stats-{arg.start_date}_{arg.end_date}.csv'), index=False)
 
     df = pd.DataFrame(data)
