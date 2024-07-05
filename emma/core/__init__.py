@@ -3,42 +3,54 @@ from __future__ import annotations
 import importlib
 import logging.config
 import os
+import re
+
 from typing import TypeVar
+from colorlog import ColoredFormatter
+from colorlog.formatter import ColoredRecord
 
 from .args import ModuleArguments, ArgumentParser
 
 
-class DefaultLogFilter(logging.Filter):
-    def filter(self, record):
-        record.levelname = '[%s]' % record.levelname
-        record.funcName = '[%s]' % record.funcName
-        record.lineno = '[%s]' % record.lineno
-        return True
+class CoreColoredFormatter(ColoredFormatter):
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+
+    def formatMessage(self, record: logging.LogRecord) -> str:
+        """Format a message from a record object."""
+        escapes = self._escape_code_map(record.levelname)
+        # record.msg = record.msg.replace('[%s]', '[\033[93m%s\033[0m]')
+        wrapper = ColoredRecord(record, escapes)
+        wrapper.levelname = '[%s]' % wrapper.levelname
+        wrapper.funcName = '[%s]' % wrapper.funcName
+        wrapper.lineno = '[\033[37m%s\033[0m]' % wrapper.lineno
+        wrapper.msg = wrapper.msg.replace('[%s]', '\033[93m%s\033[0m')
+        wrapper.message = re.sub(r'\[([^]]+)]', r'[\033[93m\1\033[0m]', wrapper.message)
+        message = logging.Formatter.formatMessage(self, wrapper)  # type: ignore
+        message = self._append_reset(message, escapes)
+        return message
 
 
 LOGGING = {
     'version': 1,
     'formatters': {
         'my_formatter': {
-          'format': '%(asctime)s %(levelname)-7s %(name)s %(lineno)-3s: %(message)s',
-          'datefmt': '%Y-%m-%d %H:%M:%S'
-        }
-    },
-    'filters': {
-        'myfilter': {
-            '()': DefaultLogFilter
+            '()': CoreColoredFormatter,
+            'datefmt': '%Y-%m-%d %H:%M:%S',
+            'format': 's%(asctime)s '
+                      '%(log_color)s%(levelname)-7s%(reset)s%(reset)s '
+                      '%(yellow)s%(name)s%(reset)s %(lineno)-3s: %(message)s'
         }
     },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
-            'filters': ['myfilter'],
             'formatter': 'my_formatter',
         }
     },
     'root': {
         'level': 'INFO',
-        'filters': ['myfilter'],
         'handlers': ['console']
     },
 }
@@ -82,7 +94,7 @@ class ExecModule:
         py_module = importlib.import_module(ModuleDescriptor.project + '.' + package)
         logger.debug('Imported package: [%s]', package)
         m: ExecModule = ExecModule(py_module)
-        logger.info('Loaded module: [%s]', package)
+        logger.debug('Loaded module: [%s]', package)
         return m
 
     def __init__(self, py_module):
@@ -93,14 +105,19 @@ class ExecModule:
         module_args: ModuleArguments = self._descriptor.get_args()
         parser: ArgumentParser = module_args.get_parser()
         arg = parser.parse_args()
-        pym_name = ModuleDescriptor.project + '.' + self._descriptor.get_name() + '.' + arg.action
+        if arg.debug:
+            logging.getLogger('root').setLevel(logging.DEBUG)
+
+        action = arg.action.replace('-', '_')
+        pym_name = ModuleDescriptor.project + '.' + self._descriptor.get_name() + '.' + action
         logger.debug('Loading Python module: [%s]', pym_name)
         py_module = importlib.import_module(pym_name)
 
         arg.func = None
         arg.module_name = self._descriptor.get_name()
         if hasattr(arg, 'sub_action') and arg.sub_action is not None:
-            fn = getattr(py_module, arg.action + '_' + arg.sub_action, None)
+            sub_action = arg.sub_action.replace('-', '_')
+            fn = getattr(py_module, arg.action + '_' + sub_action, None)
             if fn is not None:
                 arg.func = fn
         if arg.func is None:
