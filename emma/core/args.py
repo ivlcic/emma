@@ -38,24 +38,27 @@ class ModuleArguments:
 
     def init_parser(self, project: str, module_name: str, description: str):
         self._parser = argparse.ArgumentParser(
-                description=description
-            )
+            description=description
+        )
+        self._parser.add_argument(
+            '--debug', help='Enable debug messages.', action='store_true', default=False
+        )
         self._actions = self._parser.add_subparsers(
             title='Select the module action', help='Help', dest='action', metavar='action', required=True
         )
         for x in self._commands:
             cmd_name = x.get_name()
             multi_action = x.is_multi_action()
-            pym_name = project + '.' + module_name + '.' + cmd_name
-            logger.debug('Loading Python module: [%s]', pym_name)
-            py_module = importlib.import_module(pym_name)
-            logger.debug('Loaded Python module: [%s]', pym_name)
-
             subparser = self._actions.add_parser(
                 cmd_name,
                 help=x.get_description(),
                 formatter_class=argparse.RawTextHelpFormatter
             )
+            cmd_name = cmd_name.replace('-', '_')
+            pym_name = project + '.' + module_name + '.' + cmd_name
+            logger.debug('Loading Python module: [%s]', pym_name)
+            py_module = importlib.import_module(pym_name)
+            logger.debug('Loaded Python module: [%s]', pym_name)
 
             if multi_action:
                 sub_actions = []

@@ -5,6 +5,7 @@ MODULE_DESCRIPTOR = ModuleDescriptor(
     'mulabel',
     'Multilabel classification module',
     ModuleArguments([
+        CommandArguments('db', 'Vector database tasks.', multi_action=True),
         CommandArguments('prep', 'Prepares the data', multi_action=True),
         #CommandArguments('split', 'Splits the data'),
         #CommandArguments('train', 'Trains the model'),
