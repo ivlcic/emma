@@ -90,6 +90,7 @@ class ReldiTokenizer(Tokenizer):
 
 
 def get_stanza_tokenizer(lang: str, tmp_dir: Optional[str] = None):
+    stanza_dir = None
     if tmp_dir:
         stanza_dir = os.path.join(tmp_dir, 'stanza')
         if not os.path.exists(stanza_dir):
@@ -110,9 +111,9 @@ def get_reldi_tokenizer(lang: str):
 
 
 def get_tokenizer(lang, tmp_dir):
-    if lang in ['sl']:
+    if lang in ['sm']:
         return get_obeliks_tokenizer(lang)
-    elif lang in ['bg', 'hr', 'sr', 'mk']:
+    elif lang in ['se', 'bg', 'hr', 'sr', 'mk']:
         return get_reldi_tokenizer(lang)
     else:
         return get_stanza_tokenizer(lang, tmp_dir)
