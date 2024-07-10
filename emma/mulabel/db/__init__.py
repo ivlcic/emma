@@ -19,6 +19,8 @@ __supported_languages = [
     'sk', 'cs', 'ro', 'hu', 'pl', 'pt', 'el', 'de', 'es', 'it'
 ]
 
+__WEAVIATE_PORT = 18484
+
 
 def add_args(module_name: str, parser: ArgumentParser) -> None:
     CommonArguments.tmp_dir(module_name, parser, ('-i', '--data_in_dir'))
@@ -127,7 +129,7 @@ def db_init(arg) -> int:
     ./mulabel db init -c Label -l sl,sr
     """
     _process_arg_lang(arg)
-    client = weaviate.connect_to_local()
+    client = weaviate.connect_to_local(port=__WEAVIATE_PORT)
     try:
         if arg.collection_conf:
             coll_conf = _get_collection_conf(arg.collection_conf)
@@ -151,7 +153,7 @@ def db_drop(arg) -> int:
     ./mulabel db drop -c Label -l sl,sr
     """
     _process_arg_lang(arg)
-    client = weaviate.connect_to_local()
+    client = weaviate.connect_to_local(port=__WEAVIATE_PORT)
     try:
         if client.collections.exists(arg.collection):
             client.collections.delete(arg.collection)
@@ -165,12 +167,13 @@ def db_drop(arg) -> int:
 
 def _get_sentences_at(c_idx: int, num_sent: int, segments: Dict[str, List[Any]]):
     result = []
-    s_idx = 0
-    for i, char_idx in enumerate(segments['indices']):
-        s_idx = i - 1 if i > 0 else 0
-        if char_idx <= c_idx:
-            continue
-        break
+    s_idx = -1
+    last_idx = len(segments['indices']) - 1
+    for i, s_char_idx in enumerate(segments['indices']):
+        e_char_idx = segments['indices'][i + 1] if i + 1 <= last_idx else s_char_idx
+        if s_char_idx <= c_idx < e_char_idx:
+            s_idx = i
+            break
 
     if s_idx < 0:
         return result
@@ -188,11 +191,10 @@ def _get_sentences_at(c_idx: int, num_sent: int, segments: Dict[str, List[Any]])
 
 def _sentence_segment(text: str, tokenize: Callable, segments: Dict[str, List[Any]]) -> None:
     doc = tokenize(text)
-    last_offset = 0
     for i, sentence in enumerate([sentence.text for sentence in doc.sentences]):
         segments['sentences'].append(sentence)
         segments['indices'].append(text.index(sentence))
-        last_offset += len(sentence)
+    segments['indices'].append(segments['indices'][-1] + len(sentence))
 
 
 def db_pump(arg) -> int:
@@ -219,7 +221,7 @@ def db_pump(arg) -> int:
     for lang in arg.lang:
         tokenizers[lang] = get_tokenizer(lang, arg.data_in_dir)
 
-    client = weaviate.connect_to_local()
+    client = weaviate.connect_to_local(port=__WEAVIATE_PORT)
 
     try:
         if not client.collections.exists(arg.collection):
@@ -254,7 +256,10 @@ def db_pump(arg) -> int:
                 span_names = span_fields.keys()
                 all_spans_empty = all(not tag[key] for key in span_names)
                 if all_spans_empty:
-                    logger.info('Article [%s] label [%s] has no spans', article_idx, tag['id'])
+                    logger.info(
+                        'Article [%s] label [%s::%s] has no spans',
+                        article_idx, tag['id'], labels[tag['id']]['name']
+                    )
                     continue
 
                 spans = {}

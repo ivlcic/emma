@@ -9,7 +9,7 @@ services:
     - http
     image: cr.weaviate.io/semitechnologies/weaviate:1.25.6
     ports:
-    - 8080:8080
+    - 18484:8080
     - 50051:50051
     volumes:
     - ./tmp/data:/var/lib/weaviate
