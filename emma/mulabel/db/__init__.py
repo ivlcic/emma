@@ -1,18 +1,24 @@
 import json
 import os
 import logging
+
 import weaviate
+from weaviate.util import generate_uuid5
+
+logger = logging.getLogger('mulabel.db')
+os.environ['HF_HOME'] = os.path.abspath(os.path.join(__file__, '..', '..', '..', '..', 'tmp', 'mulabel'))
+logger.info('Setting [HF_HOME] to [%s]', os.environ["HF_HOME"])
 
 from argparse import ArgumentParser
 from typing import Callable, Dict, Any, List
 from weaviate import WeaviateClient
 from weaviate.collections.classes.config import Configure, Property, DataType, VectorDistances
+from FlagEmbedding import BGEM3FlagModel
 
 from ..tokenizer import get_tokenizer
 from ..utils import load_map_file
 from ...core.args import CommonArguments
 
-logger = logging.getLogger('mulabel.db')
 
 __supported_languages = [
     'sl', 'sr', 'sq', 'mk', 'bs', 'hr', 'bg', 'en', 'uk', 'ru',
@@ -53,10 +59,6 @@ def _get_collection_conf(coll_name: str) -> Dict[str, Any]:
         'Label': {
             'properties': [
                 Property(
-                    name='uuid', description='Sentence ID.', data_type=DataType.UUID,
-                    index_searchable=False, index_filterable=True, skip_vectorization=True
-                ),
-                Property(
                     name='a_uuid', description='Article ID.', data_type=DataType.UUID,
                     index_searchable=False, index_filterable=True, skip_vectorization=True
                 ),
@@ -65,7 +67,7 @@ def _get_collection_conf(coll_name: str) -> Dict[str, Any]:
                     index_searchable=True, index_filterable=True, skip_vectorization=True
                 ),
                 Property(
-                    name='language', description='Article Language.', data_type=DataType.TEXT,
+                    name='lang', description='Article Language.', data_type=DataType.TEXT,
                     index_searchable=True, index_filterable=True, skip_vectorization=True
                 ),
                 Property(
@@ -81,25 +83,25 @@ def _get_collection_conf(coll_name: str) -> Dict[str, Any]:
                     index_searchable=True, index_filterable=True, skip_vectorization=True
                 ),
                 Property(
-                    name='kwe_id', description='Article Matched Keyword Expression ID.', data_type=DataType.TEXT,
+                    name='kwe_id', description='Article Matched Keyword Expression ID.', data_type=DataType.TEXT_ARRAY,
                     index_searchable=True, index_filterable=True, skip_vectorization=True
                 ),
                 Property(
-                    name='kwe', description='Article Matched Keyword Expression.', data_type=DataType.TEXT,
+                    name='kwe', description='Article Matched Keyword Expression.', data_type=DataType.TEXT_ARRAY,
                     index_searchable=True, index_filterable=True, skip_vectorization=True
                 ),
                 Property(
-                    name='kwe_s', description='Keyword Expression Start Index.', data_type=DataType.TEXT,
-                    index_searchable=True, index_filterable=True, skip_vectorization=True
+                    name='passage_cat', description='Passage size category (number of sentences)',
+                    data_type=DataType.INT, index_searchable=False, index_filterable=True, skip_vectorization=True
                 ),
                 Property(
-                    name='content', description='The article content.', data_type=DataType.TEXT,
+                    name='passage', description='The article passage content.', data_type=DataType.TEXT,
                     index_searchable=True, index_filterable=True, skip_vectorization=True
                 ),
             ],
             'vectorizer_config': [
                 Configure.NamedVectors.none(
-                    name="vanilla_bge_m3", vector_index_config=Configure.VectorIndex.hnsw(
+                    name="bge_m3", vector_index_config=Configure.VectorIndex.hnsw(
                         distance_metric=VectorDistances.COSINE, vector_cache_max_objects=100000
                     )
                 ),
@@ -165,8 +167,7 @@ def db_drop(arg) -> int:
     return 0
 
 
-def _get_sentences_at(c_idx: int, num_sent: int, segments: Dict[str, List[Any]]):
-    result = []
+def _get_sentence_index_at(c_idx: int, segments: Dict[str, List[Any]]) -> int:
     s_idx = -1
     last_idx = len(segments['indices']) - 1
     for i, s_char_idx in enumerate(segments['indices']):
@@ -175,18 +176,7 @@ def _get_sentences_at(c_idx: int, num_sent: int, segments: Dict[str, List[Any]])
             s_idx = i
             break
 
-    if s_idx < 0:
-        return result
-    offset = (num_sent - 1) // 2
-    for i in range(s_idx - offset, s_idx + offset):
-        if i < 0:
-            continue
-        if i > len(segments['sentences']) - 1:
-            break
-        result.append(segments['sentences'][i])
-    if not result:
-        return [segments['sentences'][s_idx]]
-    return result
+    return s_idx
 
 
 def _sentence_segment(text: str, tokenize: Callable, segments: Dict[str, List[Any]]) -> None:
@@ -197,21 +187,136 @@ def _sentence_segment(text: str, tokenize: Callable, segments: Dict[str, List[An
     segments['indices'].append(segments['indices'][-1] + len(sentence))
 
 
+def _construct_db_labels(article: Dict[str, Any], segment_spans: Dict[str, Any],
+                         maps: Dict[str, Any]) -> List[Dict[str, Any]]:
+    segment_spans = {
+        'ts': {'name': 'title', 'sentences': [], 'indices': []},
+        'bs': {'name': 'body', 'sentences': [], 'indices': []},
+    }
+    text = ''
+    for seg_name, span_field in segment_spans.items():
+        if 'text' in article[span_field['name']]:
+            text = article[span_field['name']]['text']
+        if text:
+            _sentence_segment(text, tokenize, span_field)
+
+    t_sent = segment_spans['ts']['sentences']
+    b_sent = segment_spans['bs']['sentences']
+    text = ''
+    if len(t_sent) > 0 and len(b_sent) > 0:
+        b_first = b_sent[0].replace(' ', '').lower()
+        t_all = ''.join(t_sent).replace(' ', '').lower()
+        if b_first.startswith(t_all):
+            text = ' '.join(b_sent)
+    if not text:
+        text = ' '.join(t_sent) + '\n\n' + ' '.join(b_sent)
+
+    db_labels = []
+    seed_label = {
+        'id': article['id'],
+        'm_id': article['m_id'],
+        'country': article['country'],
+        'lang': article['lang'],
+        'passage_cat': 0,
+        'passage': text,
+        'kwe': [],
+        'kwe_id': []
+    }
+
+    label_ids_sent_idx = {}
+    all_sentences = []
+    for tag in article['tags']:
+        segment_names = segment_spans.keys()
+        all_spans_empty = all(not tag[key] for key in segment_names)
+        db_label = seed_label.copy()
+        db_label['label_id'] = tag['id']
+        db_label['label_title'] = maps['labels'][tag['id']]['name']
+        db_label['kwe'] = []
+        db_label['kwe_id'] = []
+        if all_spans_empty:
+            logger.info(
+                'Article [%s] label [%s::%s] has no spans',
+                article['id'], tag['id'], maps['labels'][tag['id']]['name']
+            )
+            db_labels.append(db_label)
+            continue
+
+        if tag['id'] not in label_ids_sent_idx:
+            label_ids_sent_idx[tag['id']] = {'s_idx': [], 'kwe': [], 'kwe_id': [], 'title': ''}
+
+        prev_segment_offset = 0
+        for segment_name in segment_names:
+            sentences = segment_spans[segment_name]['sentences']
+            for span in tag[segment_name]:
+                # single sentence passage matching keyword expression (1 label <-> N kwe)
+                db_span_label = db_label.copy()
+                db_span_label['kwe_id'] = [span['kwe']]
+                db_span_label['kwe'] = [span['m']]
+                center_sentence_idx = _get_sentence_index_at(span['s'], segment_spans[segment_name])
+                if 0 <= center_sentence_idx < len(sentences):
+                    sentence = segment_spans[segment_name]['sentences'][center_sentence_idx]
+                    label_ids_sent_idx[tag['id']]['s_idx'].append(center_sentence_idx + prev_segment_offset)
+                    label_ids_sent_idx[tag['id']]['kwe'].append(span['m'])
+                    label_ids_sent_idx[tag['id']]['kwe_id'].append(span['kwe'])
+                    label_ids_sent_idx[tag['id']]['title'] = db_label['label_title']
+                    db_span_label_1 = db_span_label.copy()
+                    db_span_label_1['passage_cat'] = 1
+                    db_span_label_1['passage'] = sentence
+                    db_labels.append(db_span_label_1)
+            all_sentences.extend(sentences)
+            prev_segment_offset += len(sentences)
+
+    # add a larger (multi-sentence) passage matching keyword expression
+    # considering overlaps also ... hence the complicated code
+    passage_sizes = [3, 5]  # we consider 3 and 5 sentence contexts
+    for passage_size in passage_sizes:
+        for label_name, label_data in label_ids_sent_idx.items():
+            # store all sentence indices for a given keyword expression match
+            # remove the ones that were included in a passage to minimize redundant overlapping
+            passage_center_sentence_indices = set(label_data['s_idx'])
+            for center_sentence_idx in label_data['s_idx']:
+                if center_sentence_idx not in passage_center_sentence_indices:
+                    continue
+                sent_offset = passage_size // 2
+                start = center_sentence_idx - sent_offset
+                if start < 0:
+                    start = 0
+                end = start + passage_size
+                if end > len(all_sentences) - 1:
+                    end = len(all_sentences) - 1
+                passage = []
+                for i in range(start, end):
+                    if i in passage_center_sentence_indices:
+                        passage_center_sentence_indices.remove(i)
+                    passage.append(all_sentences[i])
+                db_span_label = seed_label.copy()
+                db_span_label['kwe_id'].extend(label_data['kwe_id'])
+                db_span_label['kwe'].extend(label_data['kwe'])
+                db_span_label['label_id'] = label_name
+                db_span_label['label_title'] = label_data['title']
+                db_span_label['passage_cat'] = passage_size
+                db_span_label['passage'] = ' '.join(passage)
+                db_labels.append(db_span_label)
+                pass
+
+    return db_labels
+
+
 def db_pump(arg) -> int:
     """
         ./mulabel db pump -c Label
         ./mulabel db pump -c Label -l sl,sr
         """
     _process_arg_lang(arg)
-
-    kwes = load_map_file(
-        os.path.join(arg.data_out_dir, 'map_kwe_tags.csv'), ['tag_id', 'expr']
-    )
-
-    labels = load_map_file(
-        os.path.join(arg.data_out_dir, 'map_tags.csv'),
-        ['name', 'count', 'parent_id', 'monitoring_country', 'monitoring_industry']
-    )
+    maps = {
+        'kwes': load_map_file(
+            os.path.join(arg.data_out_dir, 'map_kwe_tags.csv'), ['tag_id', 'expr']
+        ),
+        'labels': load_map_file(
+            os.path.join(arg.data_out_dir, 'map_tags.csv'),
+            ['name', 'count', 'parent_id', 'monitoring_country', 'monitoring_industry']
+        )
+    }
 
     file_name = os.path.join(arg.data_out_dir, 'data_2023_01.jsonl')
     with open(file_name, 'r', encoding='utf8') as json_file:
@@ -221,12 +326,22 @@ def db_pump(arg) -> int:
     for lang in arg.lang:
         tokenizers[lang] = get_tokenizer(lang, arg.data_in_dir)
 
+    bge_m3_model = BGEM3FlagModel('BAAI/bge-m3', use_fp16=True)
+
+    def bge_m3_embed(text_to_embed: str):
+        return bge_m3_model.encode([text_to_embed])['dense_vecs']
+
+    models = {
+        'bge_m3': bge_m3_embed
+    }
+
     client = weaviate.connect_to_local(port=__WEAVIATE_PORT)
 
     try:
         if not client.collections.exists(arg.collection):
             logger.warning('Collection [%s] does not exist.', arg.collection)
             return 1
+        coll = client.collections.get(arg.collection)
         for article_idx, article in enumerate(json_data):
             if article['lang'] not in arg.lang:
                 continue
@@ -234,54 +349,27 @@ def db_pump(arg) -> int:
             if not tokenize:
                 logger.warning('Missing [%s] tokenizer', article['lang'])
                 continue
-            span_fields = {
+            segment_spans = {
                 'ts': {'name': 'title', 'sentences': [], 'indices': []},
                 'bs': {'name': 'body', 'sentences': [], 'indices': []},
             }
-            prev_text = ''
             text = ''
-            for seg_name, span_field in span_fields.items():
+            for seg_name, span_field in segment_spans.items():
                 if 'text' in article[span_field['name']]:
                     text = article[span_field['name']]['text']
                 if text:
                     _sentence_segment(text, tokenize, span_field)
 
-                # remove title from body if body starts wit a title and prepend it as a sentence
-                if prev_text and text.startswith(prev_text):
-                    text = text[len(prev_text):]
-                    text = prev_text + '.\n\n' + text
-                prev_text = text
-
-            for tag in article['tags']:
-                span_names = span_fields.keys()
-                all_spans_empty = all(not tag[key] for key in span_names)
-                if all_spans_empty:
-                    logger.info(
-                        'Article [%s] label [%s::%s] has no spans',
-                        article_idx, tag['id'], labels[tag['id']]['name']
-                    )
-                    continue
-
-                spans = {}
-                for span_name in span_names:
-                    for span in tag[span_name]:
-                        if span['kwe'] not in spans:
-                            spans[span['kwe']] = {
-                                'm': [],
-                                's': []
-                            }
-                        logger.debug(
-                            'Getting relevant [%s] sentences at [%s] for [%s]',
-                            span['kwe'], span['s'], span_name
-                        )
-                        relevant_sentences = _get_sentences_at(span['s'], 1, span_fields[span_name])
-                        spans[span['kwe']]['m'].append(span['m'])
-                        spans[span['kwe']]['s'].extend(relevant_sentences)
-                logger.info(
-                    'Article [%s] label [%s] has relevant sentences %s',
-                    article_idx, tag['id'], spans
+            db_labels = _construct_db_labels(article, segment_spans, maps)
+            for db_label in db_labels:
+                vectors = {}
+                for model_name, model in models.items():
+                    vectors['m_' + model_name] = model(db_label['passage'])
+                coll.data.insert(
+                    uuid=generate_uuid5(db_label),
+                    properties=db_label,
+                    vector=vectors
                 )
-
             if article_idx > 1:
                 return 1
 
@@ -291,4 +379,4 @@ def db_pump(arg) -> int:
 
 
 def prep_analyse(arg) -> int:
-    pass
+    return 0
