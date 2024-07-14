@@ -1,4 +1,9 @@
 #!/usr/bin/env python
+import os
+os.environ['TRANSFORMERS_CACHE'] = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), 'tmp', 'mulabel')
+)
+
 from emma.core import ExecModule
 
 

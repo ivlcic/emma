@@ -1,29 +1,23 @@
+import csv
 import json
 import os
 import logging
-
 import weaviate
-from weaviate.util import generate_uuid5
-
-logger = logging.getLogger('mulabel.db')
-os.environ['HF_HOME'] = os.path.abspath(os.path.join(__file__, '..', '..', '..', '..', 'tmp', 'mulabel'))
-logger.info('Setting [HF_HOME] to [%s]', os.environ["HF_HOME"])
 
 from argparse import ArgumentParser
-from typing import Callable, Dict, Any, List
+from typing import Callable, Dict, Any
 from weaviate import WeaviateClient
+from weaviate.util import generate_uuid5
 from weaviate.collections.classes.config import Configure, Property, DataType, VectorDistances
 from FlagEmbedding import BGEM3FlagModel
 
-from ..tokenizer import get_tokenizer
-from ..utils import load_map_file
+from ..tokenizer import get_segmenter
+from ..utils import load_map_file, construct_span_contexts, write_map_file, __supported_languages, \
+    compute_arg_collection_name
 from ...core.args import CommonArguments
 
+logger = logging.getLogger('mulabel.utils')
 
-__supported_languages = [
-    'sl', 'sr', 'sq', 'mk', 'bs', 'hr', 'bg', 'en', 'uk', 'ru',
-    'sk', 'cs', 'ro', 'hu', 'pl', 'pt', 'el', 'de', 'es', 'it'
-]
 
 __WEAVIATE_PORT = 18484
 
@@ -40,18 +34,14 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
              f'You can use a comma separated list of {__supported_languages}',
         type=str,
     )
-
-
-def _process_arg_lang(arg):
-    arg.collection_conf = arg.collection
-    if arg.lang:
-        arg.lang = arg.lang.split(',')
-        not_in_languages = [lang for lang in arg.lang if lang not in __supported_languages]
-        if not_in_languages:
-            logger.error('Languages %s are not supported!', [])
-        arg.collection = arg.collection + '_' + '_'.join(arg.lang)
-    else:
-        arg.lang = __supported_languages
+    parser.add_argument(
+        '--public', help='Use only publicly available data.',
+        action='store_true', default=False
+    )
+    parser.add_argument(
+        '--seed_only', help='Use only seed labels (not all article labels).',
+        action='store_true', default=False
+    )
 
 
 def _get_collection_conf(coll_name: str) -> Dict[str, Any]:
@@ -59,8 +49,12 @@ def _get_collection_conf(coll_name: str) -> Dict[str, Any]:
         'Label': {
             'properties': [
                 Property(
-                    name='a_uuid', description='Article ID.', data_type=DataType.UUID,
+                    name='a_uuid', description='Article UUID.', data_type=DataType.UUID,
                     index_searchable=False, index_filterable=True, skip_vectorization=True
+                ),
+                Property(
+                    name='a_id', description='Article ID.', data_type=DataType.TEXT,
+                    index_searchable=True, index_filterable=True, skip_vectorization=True
                 ),
                 Property(
                     name='country', description='Article Country.', data_type=DataType.TEXT,
@@ -101,7 +95,7 @@ def _get_collection_conf(coll_name: str) -> Dict[str, Any]:
             ],
             'vectorizer_config': [
                 Configure.NamedVectors.none(
-                    name="bge_m3", vector_index_config=Configure.VectorIndex.hnsw(
+                    name="m_bge_m3", vector_index_config=Configure.VectorIndex.hnsw(
                         distance_metric=VectorDistances.COSINE, vector_cache_max_objects=100000
                     )
                 ),
@@ -128,9 +122,10 @@ def _create_collection_if_not_exists(
 def db_init(arg) -> int:
     """
     ./mulabel db init -c Label
+    ./mulabel db init -c Label -l sl
     ./mulabel db init -c Label -l sl,sr
     """
-    _process_arg_lang(arg)
+    compute_arg_collection_name(arg)
     client = weaviate.connect_to_local(port=__WEAVIATE_PORT)
     try:
         if arg.collection_conf:
@@ -154,7 +149,7 @@ def db_drop(arg) -> int:
     ./mulabel db drop -c Label
     ./mulabel db drop -c Label -l sl,sr
     """
-    _process_arg_lang(arg)
+    compute_arg_collection_name(arg)
     client = weaviate.connect_to_local(port=__WEAVIATE_PORT)
     try:
         if client.collections.exists(arg.collection):
@@ -167,164 +162,48 @@ def db_drop(arg) -> int:
     return 0
 
 
-def _get_sentence_index_at(c_idx: int, segments: Dict[str, List[Any]]) -> int:
-    s_idx = -1
-    last_idx = len(segments['indices']) - 1
-    for i, s_char_idx in enumerate(segments['indices']):
-        e_char_idx = segments['indices'][i + 1] if i + 1 <= last_idx else s_char_idx
-        if s_char_idx <= c_idx < e_char_idx:
-            s_idx = i
-            break
-
-    return s_idx
-
-
-def _sentence_segment(text: str, tokenize: Callable, segments: Dict[str, List[Any]]) -> None:
-    doc = tokenize(text)
-    for i, sentence in enumerate([sentence.text for sentence in doc.sentences]):
-        segments['sentences'].append(sentence)
-        segments['indices'].append(text.index(sentence))
-    segments['indices'].append(segments['indices'][-1] + len(sentence))
-
-
-def _construct_db_labels(article: Dict[str, Any], segment_spans: Dict[str, Any],
-                         maps: Dict[str, Any]) -> List[Dict[str, Any]]:
-    segment_spans = {
-        'ts': {'name': 'title', 'sentences': [], 'indices': []},
-        'bs': {'name': 'body', 'sentences': [], 'indices': []},
-    }
-    text = ''
-    for seg_name, span_field in segment_spans.items():
-        if 'text' in article[span_field['name']]:
-            text = article[span_field['name']]['text']
-        if text:
-            _sentence_segment(text, tokenize, span_field)
-
-    t_sent = segment_spans['ts']['sentences']
-    b_sent = segment_spans['bs']['sentences']
-    text = ''
-    if len(t_sent) > 0 and len(b_sent) > 0:
-        b_first = b_sent[0].replace(' ', '').lower()
-        t_all = ''.join(t_sent).replace(' ', '').lower()
-        if b_first.startswith(t_all):
-            text = ' '.join(b_sent)
-    if not text:
-        text = ' '.join(t_sent) + '\n\n' + ' '.join(b_sent)
-
-    db_labels = []
-    seed_label = {
-        'id': article['id'],
-        'm_id': article['m_id'],
-        'country': article['country'],
-        'lang': article['lang'],
-        'passage_cat': 0,
-        'passage': text,
-        'kwe': [],
-        'kwe_id': []
-    }
-
-    label_ids_sent_idx = {}
-    all_sentences = []
-    for tag in article['tags']:
-        segment_names = segment_spans.keys()
-        all_spans_empty = all(not tag[key] for key in segment_names)
-        db_label = seed_label.copy()
-        db_label['label_id'] = tag['id']
-        db_label['label_title'] = maps['labels'][tag['id']]['name']
-        db_label['kwe'] = []
-        db_label['kwe_id'] = []
-        if all_spans_empty:
-            logger.info(
-                'Article [%s] label [%s::%s] has no spans',
-                article['id'], tag['id'], maps['labels'][tag['id']]['name']
-            )
-            db_labels.append(db_label)
-            continue
-
-        if tag['id'] not in label_ids_sent_idx:
-            label_ids_sent_idx[tag['id']] = {'s_idx': [], 'kwe': [], 'kwe_id': [], 'title': ''}
-
-        prev_segment_offset = 0
-        for segment_name in segment_names:
-            sentences = segment_spans[segment_name]['sentences']
-            for span in tag[segment_name]:
-                # single sentence passage matching keyword expression (1 label <-> N kwe)
-                db_span_label = db_label.copy()
-                db_span_label['kwe_id'] = [span['kwe']]
-                db_span_label['kwe'] = [span['m']]
-                center_sentence_idx = _get_sentence_index_at(span['s'], segment_spans[segment_name])
-                if 0 <= center_sentence_idx < len(sentences):
-                    sentence = segment_spans[segment_name]['sentences'][center_sentence_idx]
-                    label_ids_sent_idx[tag['id']]['s_idx'].append(center_sentence_idx + prev_segment_offset)
-                    label_ids_sent_idx[tag['id']]['kwe'].append(span['m'])
-                    label_ids_sent_idx[tag['id']]['kwe_id'].append(span['kwe'])
-                    label_ids_sent_idx[tag['id']]['title'] = db_label['label_title']
-                    db_span_label_1 = db_span_label.copy()
-                    db_span_label_1['passage_cat'] = 1
-                    db_span_label_1['passage'] = sentence
-                    db_labels.append(db_span_label_1)
-            all_sentences.extend(sentences)
-            prev_segment_offset += len(sentences)
-
-    # add a larger (multi-sentence) passage matching keyword expression
-    # considering overlaps also ... hence the complicated code
-    passage_sizes = [3, 5]  # we consider 3 and 5 sentence contexts
-    for passage_size in passage_sizes:
-        for label_name, label_data in label_ids_sent_idx.items():
-            # store all sentence indices for a given keyword expression match
-            # remove the ones that were included in a passage to minimize redundant overlapping
-            passage_center_sentence_indices = set(label_data['s_idx'])
-            for center_sentence_idx in label_data['s_idx']:
-                if center_sentence_idx not in passage_center_sentence_indices:
-                    continue
-                sent_offset = passage_size // 2
-                start = center_sentence_idx - sent_offset
-                if start < 0:
-                    start = 0
-                end = start + passage_size
-                if end > len(all_sentences) - 1:
-                    end = len(all_sentences) - 1
-                passage = []
-                for i in range(start, end):
-                    if i in passage_center_sentence_indices:
-                        passage_center_sentence_indices.remove(i)
-                    passage.append(all_sentences[i])
-                db_span_label = seed_label.copy()
-                db_span_label['kwe_id'].extend(label_data['kwe_id'])
-                db_span_label['kwe'].extend(label_data['kwe'])
-                db_span_label['label_id'] = label_name
-                db_span_label['label_title'] = label_data['title']
-                db_span_label['passage_cat'] = passage_size
-                db_span_label['passage'] = ' '.join(passage)
-                db_labels.append(db_span_label)
-                pass
-
-    return db_labels
-
-
 def db_pump(arg) -> int:
     """
         ./mulabel db pump -c Label
         ./mulabel db pump -c Label -l sl,sr
+
+        ./mulabel db drop -c Label -l sl
+        ./mulabel db init -c Label -l sl
+        ./mulabel db pump -c Label -l sl --public
+
+        ./mulabel db pump -c Label -l sl --public --seed_only
         """
-    _process_arg_lang(arg)
+    compute_arg_collection_name(arg)
+    label_cols = ['name', 'count', 'parent_id', 'monitoring_country', 'monitoring_industry']
     maps = {
         'kwes': load_map_file(
             os.path.join(arg.data_out_dir, 'map_kwe_tags.csv'), ['tag_id', 'expr']
         ),
         'labels': load_map_file(
-            os.path.join(arg.data_out_dir, 'map_tags.csv'),
-            ['name', 'count', 'parent_id', 'monitoring_country', 'monitoring_industry']
-        )
+            os.path.join(arg.data_out_dir, 'map_tags.csv'), label_cols
+        ),
+        'seed_labels': load_map_file(
+            os.path.join(arg.data_out_dir, 'map_seed_tags.csv'), label_cols
+        ),
+        'trained_labels': {}
     }
-
-    file_name = os.path.join(arg.data_out_dir, 'data_2023_01.jsonl')
+    # postfix = '2023_99'
+    max_articles = -1
+    postfix = '2023_01'
+    file_name = os.path.join(arg.data_out_dir, f'data_{postfix}.jsonl')
     with open(file_name, 'r', encoding='utf8') as json_file:
         json_data = json.load(json_file)
 
+    article_map_file_name = os.path.join(arg.data_out_dir, f'map_articles_{postfix}.csv')
+    article_cols = [
+        'uuid', 'public', 'created', 'published', 'country', 'mon_country', 'lang', 'script', 'm_id',
+        'rel_path', 'url', 'sent', 'words', 'sp_tokens', 'tags_count', 'tags'
+    ]
+    map_articles = load_map_file(article_map_file_name, article_cols)
+
     tokenizers = {}
     for lang in arg.lang:
-        tokenizers[lang] = get_tokenizer(lang, arg.data_in_dir)
+        tokenizers[lang] = get_segmenter(lang, arg.data_in_dir)
 
     bge_m3_model = BGEM3FlagModel('BAAI/bge-m3', use_fp16=True)
 
@@ -335,46 +214,76 @@ def db_pump(arg) -> int:
         'bge_m3': bge_m3_embed
     }
 
-    client = weaviate.connect_to_local(port=__WEAVIATE_PORT)
+    db_file_name = os.path.join(arg.data_in_dir, f'db_file_{postfix}.csv')
+    with open(db_file_name, 'w', encoding='utf8') as db_file:
+        writer = csv.writer(db_file)
 
-    try:
-        if not client.collections.exists(arg.collection):
-            logger.warning('Collection [%s] does not exist.', arg.collection)
-            return 1
-        coll = client.collections.get(arg.collection)
-        for article_idx, article in enumerate(json_data):
-            if article['lang'] not in arg.lang:
-                continue
-            tokenize = tokenizers[article['lang']]
-            if not tokenize:
-                logger.warning('Missing [%s] tokenizer', article['lang'])
-                continue
-            segment_spans = {
-                'ts': {'name': 'title', 'sentences': [], 'indices': []},
-                'bs': {'name': 'body', 'sentences': [], 'indices': []},
-            }
-            text = ''
-            for seg_name, span_field in segment_spans.items():
-                if 'text' in article[span_field['name']]:
-                    text = article[span_field['name']]['text']
-                if text:
-                    _sentence_segment(text, tokenize, span_field)
+        header_written = False
+        client = weaviate.connect_to_local(port=__WEAVIATE_PORT)
 
-            db_labels = _construct_db_labels(article, segment_spans, maps)
-            for db_label in db_labels:
-                vectors = {}
-                for model_name, model in models.items():
-                    vectors['m_' + model_name] = model(db_label['passage'])
-                coll.data.insert(
-                    uuid=generate_uuid5(db_label),
-                    properties=db_label,
-                    vector=vectors
-                )
-            if article_idx > 1:
+        try:
+            if not client.collections.exists(arg.collection):
+                logger.warning('Collection [%s] does not exist.', arg.collection)
                 return 1
+            coll = client.collections.get(arg.collection)
+            stored = set()
+            for article_idx, article in enumerate(json_data):
+                if article['lang'] not in arg.lang:
+                    continue
+                if arg.public and article['public'] != 1:
+                    continue
+                if arg.seed_only:
+                    article['tags'] = [x for x in article['tags'] if x['id'] in maps['seed_labels']]
 
-    finally:
-        client.close()
+                if article['id'] in map_articles:
+                    article['uuid'] = map_articles[article['id']]['uuid']
+                else:
+                    logger.warning('Missing mapped article [%s]', article['id'])
+
+                tokenize = tokenizers[article['lang']]
+                if not tokenize:
+                    logger.warning('Missing [%s] tokenizer', article['lang'])
+                    continue
+
+                for tag in article['tags']:
+                    if not tag['id'] in maps['trained_labels']:
+                        maps['trained_labels'][tag['id']] = maps['labels'][tag['id']]
+
+                db_labels = construct_span_contexts(
+                    article, tokenize, maps, [1, 3, 5, 7, 9]
+                )
+                for db_label in db_labels:
+                    record_uuid = generate_uuid5(db_label)
+                    if record_uuid in stored:
+                        continue
+
+                    logger.info('Processing label [%s]', db_label)
+
+                    vectors = {}
+                    for model_name, model in models.items():
+                        vectors['m_' + model_name] = model(db_label['passage'])
+
+                    if not header_written:
+                        cols = ['uuid']
+                        cols.extend(db_label.keys())
+                        writer.writerow(cols)
+                        header_written = True
+                    cols = [record_uuid]
+                    cols.extend(db_label.values())
+                    writer.writerow(cols)
+
+                    coll.data.insert(
+                        uuid=record_uuid,
+                        properties=db_label,
+                        vector=vectors
+                    )
+                    stored.add(record_uuid)
+                if article_idx < max_articles:
+                    break
+        finally:
+            client.close()
+
+    write_map_file(maps['trained_labels'], os.path.join(arg.data_out_dir, 'map_trained_tags.csv'), label_cols)
     return 0
 
 
