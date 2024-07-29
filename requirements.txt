@@ -21,3 +21,4 @@ FlagEmbedding>=1.2.10
 reldi-tokeniser>=1.0.3
 obeliks>=1.1.6
 stanza>=1.8.2
+tiktoken>=0.7.0
