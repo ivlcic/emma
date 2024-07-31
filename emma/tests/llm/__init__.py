@@ -6,6 +6,8 @@ from argparse import ArgumentParser
 
 from torch.utils.data import DataLoader
 
+from .dummy_gpt import DummyGPTModel
+from .gpt import LayerNorm
 from .gpt_ds import GPTDatasetV1
 from .self_attn import SelfAttentionV1, SelfAttentionV2, MaskedAttentionV1, MaskedAttentionV2, CausalAttention, \
     MultiHeadAttentionWrapper, MultiHeadAttention
@@ -227,9 +229,9 @@ def llm_train_self_attn(args) -> int:
     # This is not to be confused with the attention weights. Attention weights determine the extent to which
     # a context vector depends on the different parts of the input - to what extent the network focuses
     # on different parts of the input.
-    query_2 = x_2 @ W_query  # A "query" is analogous to a search query in a database.
-    key_2   = x_2 @ W_key    # The "key" is like a database key used for indexing and searching.
-    value_2 = x_2 @ W_value  # The "value" in this context is similar to the value in a key-value pair in a database.
+    query_2 = x_2 @ W_query  # A 'query' is analogous to a search query in a database.
+    key_2   = x_2 @ W_key    # The 'key' is like a database key used for indexing and searching.
+    value_2 = x_2 @ W_value  # The 'value' in this context is similar to the value in a key-value pair in a database.
     print(f'Query@2: {query_2}\n')
 
     keys   = inputs @ W_key
@@ -271,4 +273,60 @@ def llm_train_self_attn(args) -> int:
     sa = MultiHeadAttention(d_in, d_out, context_length, dropout=0.0, num_heads=2)
     print(f'Multi-head attention v7: \n{sa(batch)}\n')
 
+    return 0
+
+
+GPT_CONFIG_124M = {
+    'vocab_size': 50257,     # Vocabulary size
+    'context_length': 1024,  # Context length
+    'emb_dim': 768,          # Embedding dimension
+    'n_heads': 12,           # Number of attention heads
+    'n_layers': 12,          # Number of layers
+    'drop_rate': 0.1,        # Dropout rate
+    'qkv_bias': False        # Query-Key-Value bias
+}
+
+
+def llm_dummy_gpt(args) -> int:
+    tokenizer = tiktoken.get_encoding('gpt2')
+    batch = []
+    txt1 = 'Every effort moves you'
+    txt2 = 'Every day holds a'
+    batch.append(torch.tensor(tokenizer.encode(txt1)))
+    batch.append(torch.tensor(tokenizer.encode(txt2)))
+    batch = torch.stack(batch, dim=0)
+    print(batch)
+
+    torch.manual_seed(123)
+    model = DummyGPTModel(GPT_CONFIG_124M)
+    logits = model(batch)
+    print(f'Output shape: {logits.shape}')
+    print(f'Logits: {logits}')
+    return 0
+
+
+def llm_layer_norm(args) -> int:
+    torch.manual_seed(123)
+    batch_example = torch.randn(2, 5)  # A
+    layer = torch.nn.Sequential(torch.nn.Linear(5, 6), torch.nn.ReLU())
+    out = layer(batch_example)
+    print(out)
+    mean = out.mean(dim=-1, keepdim=True)
+    var = out.var(dim=-1, keepdim=True)
+    print(f'Mean:\n{mean}\n', mean)
+    print(f'Variance:\n{var}\n', var)
+    out_norm = (out - mean) / torch.sqrt(var)
+    mean = out_norm.mean(dim=-1, keepdim=True)
+    var = out_norm.var(dim=-1, keepdim=True)
+    print(f'Normalized layer outputs:\n{out_norm}\n')
+    torch.set_printoptions(sci_mode=False)
+    print(f'Mean:\n{mean}\n', mean)
+    print(f'Variance:\n{var}\n', var)
+
+    ln = LayerNorm(emb_dim=5)
+    out_ln = ln(batch_example)
+    mean = out_ln.mean(dim=-1, keepdim=True)
+    var = out_ln.var(dim=-1, unbiased=False, keepdim=True)
+    print(f'Mean:\n{mean}\n', mean)
+    print(f'Variance:\n{var}\n', var)
     return 0
