@@ -17,7 +17,7 @@ from ..core.models import valid_model_names, ModuleFactory
 logger = logging.getLogger('longdoc.prep')
 
 corpora = {
-    'hyperpartisan', 'eurlex', 'eurlexinv', '20news', 'booksummaries'
+    'hyperpartisan', 'eurlex', 'eurlexinv', '20news', 'booksummaries', 'klp1s0'
 }
 
 
@@ -46,6 +46,16 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
 
 
 def main(args) -> int:
+    """
+    ./longdoc train --batch 8 --epochs 20 --lr 5e-5 --model_name bertmc --corpus eurlex
+    ./longdoc train --batch 8 --epochs 20 --lr 5e-5 --model_name xlmrb --corpus eurlex
+
+    ./longdoc train --batch 8 --epochs 20 --lr 5e-5 --model_name tobertmc --corpus eurlex
+    ./longdoc train --batch 8 --epochs 20 --lr 5e-5 --model_name toxlmrb --corpus eurlex
+
+    ./longdoc train --batch 8 --epochs 20 --lr 5e-5 --model_name bertmcplusrandom --corpus eurlex
+    ./longdoc train --batch 8 --epochs 20 --lr 5e-5 --model_name xlmrbplusrandom --corpus eurlex
+    """
     if args.corpus not in corpora:
         raise RuntimeError(f'Corpus {args.corpus} should be one of {corpora}')
     # https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html#torch.set_float32_matmul_precision
