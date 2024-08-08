@@ -63,23 +63,28 @@ def write_map_file(d: Dict[str, Dict[str, Any]], file_name: str, cols: List[str]
             writer.writerow(row)
 
 
-def get_element_index_at(c_idx: int, indices: List[int]) -> int:
-    s_idx = -1
+def get_element_index_at(c_idx: int, indices: List[int]) -> Tuple[int, int]:
+    sent_idx = -1
+    char_idx = -1
     last_idx = len(indices) - 1
     for i, s_char_idx in enumerate(indices):
         e_char_idx = indices[i + 1] if i + 1 <= last_idx else s_char_idx
         if s_char_idx <= c_idx < e_char_idx:
-            s_idx = i
+            sent_idx = i
+            char_idx = c_idx - s_char_idx
             break
 
-    return s_idx
+    return sent_idx, char_idx
 
 
 def sentence_segment(text: str, tokenize: Callable[[str], Any], segments: Dict[str, List[Any]]) -> None:
     doc = tokenize(text)
+    curr_idx = 0
     for i, sentence in enumerate([sentence.text for sentence in doc.sentences]):
         segments['sentences'].append(sentence)
-        segments['indices'].append(text.index(sentence))
+        curr_idx = text.index(sentence, curr_idx)
+        segments['indices'].append(curr_idx)
+
     if not segments['sentences']:
         return
     segments['indices'].append(segments['indices'][-1] + len(sentence))
@@ -148,9 +153,12 @@ def construct_span_contexts(article: Dict[str, Any], tokenize: Callable[[str], A
             sentences = segment_spans[segment_name]['sentences']
             for span in tag[segment_name]:
                 # single sentence passage matching keyword expression (1 label <-> N kwe)
-                center_sentence_idx = get_element_index_at(span['s'], segment_spans[segment_name]['indices'])
+                center_sentence_idx, span_sent_idx = get_element_index_at(
+                    span['s'], segment_spans[segment_name]['indices']
+                )
                 if 0 <= center_sentence_idx < len(sentences):
                     true_idx = center_sentence_idx + prev_segment_offset
+                    span_sentence = sentences[center_sentence_idx]
                     if true_idx not in label_ids_sent_idx[tag['id']]['s_idx']:
                         label_ids_sent_idx[tag['id']]['s_idx'].append(true_idx)
                         label_ids_sent_idx[tag['id']]['kwe'].append([span['m']])

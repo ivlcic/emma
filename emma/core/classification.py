@@ -46,15 +46,15 @@ class Classification(pl.LightningModule):
     def _log_step(self, prefix, y_pred, y_true, loss, start):
         self.log(
             prefix + 'eval_metric', self.eval_metric(y_pred, y_true),
-            on_step=True, on_epoch=True, prog_bar=True, logger=True
+            on_step=True, on_epoch=True, prog_bar=True, logger=True, batch_size=self.batch_size
         )
         self.log(
             prefix + 'loss', loss,
-            on_step=True, on_epoch=True, prog_bar=True, logger=True
+            on_step=True, on_epoch=True, prog_bar=True, logger=True, batch_size=self.batch_size
         )
         self.log(
             prefix + 'time', time.time() - start,
-            on_step=True, on_epoch=True, prog_bar=True, logger=True
+            on_step=True, on_epoch=True, prog_bar=True, logger=True, batch_size=self.batch_size
         )
 
     def _compute_true_pred_loss(self, batch):
