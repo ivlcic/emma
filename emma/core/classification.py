@@ -8,7 +8,7 @@ import torch.nn.functional as funct
 import torch.optim as optim
 
 from torchmetrics import Accuracy, F1Score
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, hamming_loss
 from transformers.optimization import get_linear_schedule_with_warmup
 
 from .dataset import ChunkDataset
@@ -137,6 +137,8 @@ class Classification(pl.LightningModule):
                 '%s%s_f1: %.5f',
                 prefix, average_type, f1_score(y_true, y_pred, average=average_type)
             )
+        if self.label_type == 'multilabel':
+            self.model.logger.info("%shamming_loss: %.5f", prefix, hamming_loss(y_true, y_pred))
 
     def _validation_epoch_end(self, outputs, prefix='val_'):
         labels = []
@@ -174,14 +176,14 @@ class Classification(pl.LightningModule):
 
     def configure_optimizers(self):
         opt = {}
-        optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
+        optimizer = optim.AdamW(self.model.parameters(), lr=self.lr)
         opt['optimizer'] = optimizer
         if not self.scheduler:
             return opt
         else:
             num_steps = self.dataset_size * self.epochs / self.batch_size
             scheduler = get_linear_schedule_with_warmup(
-                optimizer, num_warmup_steps=num_steps * 0.1, num_training_steps=num_steps
+                optimizer, num_warmup_steps=int(num_steps * 0.1), num_training_steps=int(num_steps)
             )
             opt['lr_scheduler'] = scheduler
             return opt
