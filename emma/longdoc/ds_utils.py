@@ -35,7 +35,7 @@ def _load_data(split_dir, corpus: str):
     l_file_path = os.path.join(split_dir, corpus, 'labels.csv')
     if os.path.exists(l_file_path):
         with open(l_file_path, 'r') as l_file:
-            labels = l_file.readlines()
+            labels = [line.strip() for line in l_file]
             labeler.collect(labels)
     else:
         for split in ['train', 'dev', 'test']:
