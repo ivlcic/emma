@@ -17,6 +17,8 @@ def _load_data(split_dir, corpus: str):
     labeler: Labeler = BinaryLabeler()
     for split in ['train', 'dev', 'test']:
         file_path = os.path.join(split_dir, corpus, split + '.csv')
+        if not os.path.isfile(file_path):
+            continue
         data = pd.read_csv(file_path)
         column_names = data.columns.tolist()
         for col in column_names:
