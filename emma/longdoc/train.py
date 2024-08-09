@@ -87,6 +87,8 @@ def main(args) -> int:
 
     dataset_size = len(label_set['train'])  # to calculate the num of steps for warm up scheduler
     logger.debug("Constructing task")
+    logger.info(f'Loaded train[{len(text_set["train"])}] dev[{len(text_set["dev"])}] test[{len(text_set["test"])}]')
+    logger.info(f'Loaded {labeler} with {labeler.num_labels}')
     task = Classification(module, args.lr, args.scheduler, dataset_size, args.epochs, args.batch)
 
     ckpt_config = ModelCheckpoint(
