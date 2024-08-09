@@ -86,6 +86,37 @@ class Module(torch.nn.Module):
         self.dropout = torch.nn.Dropout(dropout_rate)
 
 
+class XlmClassificationHead(torch.nn.Module):
+
+    def __init__(self, hidden_size: int, num_labels: int, dropout: torch.nn.Dropout):
+        super().__init__()
+        self.dense = torch.nn.Linear(hidden_size, hidden_size)
+        self.dropout = dropout
+        self.out_proj = torch.nn.Linear(hidden_size, num_labels)
+
+    def forward(self, features, **kwargs):
+        x = features[:, 0, :]  # take <s> token (equiv. to [CLS])
+        x = self.dropout(x)
+        x = self.dense(x)
+        x = torch.tanh(x)
+        x = self.dropout(x)
+        x = self.out_proj(x)
+        return x
+
+
+class BertClassificationHead(torch.nn.Module):
+
+    def __init__(self, hidden_size: int, num_labels: int, dropout: torch.nn.Dropout):
+        super().__init__()
+        self.dropout = dropout
+        self.out_proj = torch.nn.Linear(hidden_size, num_labels)
+
+    def forward(self, features, **kwargs):
+        x = self.dropout(features)
+        x = self.out_proj(x)
+        return x
+
+
 class TransEnc(Module):
 
     _allowed_models = ['xlm-roberta-base', 'bert-base-uncased', 'bert-base-multilingual-cased']
@@ -96,27 +127,35 @@ class TransEnc(Module):
             raise RuntimeError(f'Only {TransEnc._allowed_models} are allowed!')
         self.model: PreTrainedModel = AutoModel.from_pretrained(model_name, cache_dir=cache_model_dir)
         self.tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_model_dir)
-        self.classifier = torch.nn.Linear(768, self.labeler.num_labels)
+        if 'xlm' in model_name:
+            self.classifier = XlmClassificationHead(768, self.labeler.num_labels, self.dropout)
+        else:
+            self.classifier = BertClassificationHead(768, self.labeler.num_labels, self.dropout)
         self.model.to(self.device)
 
     def forward(self, ids, mask, token_type_ids):
 
         if not self.has_additional_text:
-            _, model_output = self.model(
+            sequence_output, pooled_output = self.model(
                 ids, attention_mask=mask, token_type_ids=token_type_ids, return_dict=False
             )
-            drop_output = self.dropout(model_output)
+            if 'xlm' in self.model_name:
+                model_output = sequence_output
+            else:
+                model_output = pooled_output
         else:
-            _, truncated_output = self.model(
+            sequence_output, pooled_output = self.model(
                 ids[:, 0, :], attention_mask=mask[:, 0, :], token_type_ids=token_type_ids[:, 0, :], return_dict=False
             )
-            _, additional_text_output = self.model(
+            additional_sequence_output, additional_pooled_output = self.model(
                 ids[:, 1, :], attention_mask=mask[:, 1, :], token_type_ids=token_type_ids[:, 1, :], return_dict=False
             )
-            concat_output = torch.cat((truncated_output, additional_text_output), dim=1)  # batch_size, 768*2
-            drop_output = self.dropout(concat_output)  # batch_size, 768*2
+            if 'xlm' in self.model_name:
+                model_output = torch.cat((sequence_output, additional_sequence_output), dim=1)  # batch_size, 768*2
+            else:
+                model_output = torch.cat((pooled_output, additional_pooled_output), dim=1)  # batch_size, 768*2
 
-        logits = self.classifier(drop_output)
+        logits = self.classifier(model_output)
         return logits
 
 
