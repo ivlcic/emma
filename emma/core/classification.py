@@ -6,6 +6,7 @@ import numpy as np
 import lightning.pytorch as pl
 import torch.nn.functional as funct
 import torch.optim as optim
+from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss
 
 from torchmetrics import Accuracy, F1Score
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, hamming_loss
@@ -75,44 +76,48 @@ class Classification(pl.LightningModule):
             ids = ids.to(self.device)
             mask = mask.to(self.device)
             token_type_ids = token_type_ids.to(self.device)
-            y_true = targets.to(self.device)
+            labels = targets.to(self.device)
 
-            y_hat = self.model(ids, mask, token_type_ids, length)
+            logits = self.model(ids, mask, token_type_ids, length)
         else:
             ids = batch['ids'].to(self.device)
             mask = batch['mask'].to(self.device)
             token_type_ids = batch['token_type_ids'].to(self.device)
-            y_true = batch['labels'].to(self.device)
+            labels = batch['labels'].to(self.device)
 
-            y_hat = self.model(ids, mask, token_type_ids)
+            logits = self.model(ids, mask, token_type_ids)
 
-        if self.label_type == 'multilabel' or self.label_type == 'binary':
-            loss = funct.binary_cross_entropy_with_logits(y_hat, y_true.float())  # sigmoid + binary cross entropy loss
-            y_pred = torch.sigmoid(y_hat)
+        if self.label_type == 'multilabel':
+            loss_fct = BCEWithLogitsLoss()  # sigmoid + binary cross entropy loss
+            loss = loss_fct(logits, labels.float())
+            prob = torch.sigmoid(logits)
+            pred = (prob > 0.5).float()
         else:
-            loss = funct.cross_entropy(y_hat, y_true)  # softmax + cross entropy loss
-            y_pred = torch.softmax(y_hat, dim=-1)
-        return y_true, y_pred, loss
+            loss_fct = CrossEntropyLoss()
+            loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))  # softmax + cross entropy loss
+            prob = torch.softmax(logits, dim=-1)
+            _, pred = torch.max(prob, 1)
+        return labels, pred, loss
 
     def training_step(self, batch, batch_idx):
         start = time.time()
         metrics = {}
-        y_true, y_pred, loss = self._compute_true_pred_loss(batch)
+        labels, pred, loss = self._compute_true_pred_loss(batch)
 
         metrics['loss'] = loss
-        self._log_step('train_', y_pred, y_true, loss, start)
+        self._log_step('train_', pred, labels, loss, start)
         return metrics
 
     def validation_step(self, batch, batch_idx, prefix='val_'):
         start = time.time()
         outputs = {}
-        y_true, y_pred, loss = self._compute_true_pred_loss(batch)
+        labels, pred, loss = self._compute_true_pred_loss(batch)
 
         outputs[prefix + 'loss'] = loss
-        outputs['preds'] = y_pred
-        outputs['y'] = y_true
+        outputs['preds'] = pred
+        outputs['y'] = labels
 
-        self._log_step(prefix, y_pred, y_true, loss, start)
+        self._log_step(prefix, pred, labels, loss, start)
         if prefix == 'val_':
             self.validation_step_outputs.append(outputs)
         else:
@@ -155,12 +160,12 @@ class Classification(pl.LightningModule):
         y_pred = predictions.numpy()
         y_true = labels.numpy()
 
-        if self.label_type == 'multilabel' or self.label_type == 'binary':
-            y_pred_labels = np.where(y_pred > 0.5, 1, 0)
-        else:
-            y_pred_labels = np.argmax(y_pred, axis=1)
+        #if self.label_type == 'multilabel' or self.label_type == 'binary':
+        #    y_pred_labels = np.where(y_pred > 0.5, 1, 0)
+        #else:
+        #    y_pred_labels = np.argmax(y_pred, axis=1)
 
-        self._logout_metrics(prefix, y_true, y_pred_labels)
+        self._logout_metrics(prefix, y_true, y_pred)
 
     def on_validation_epoch_end(self):
         self._validation_epoch_end(self.validation_step_outputs)
