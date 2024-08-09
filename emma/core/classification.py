@@ -126,24 +126,24 @@ class Classification(pl.LightningModule):
 
     def _logout_metrics(self, prefix: str, y_true, y_pred):
         self.model.logger.info("Epoch: %s", self.current_epoch)
-        self.model.logger.info("%saccuracy: %.5f", prefix, accuracy_score(y_true, y_pred))
+        self.model.logger.info("%saccuracy: %.7f", prefix, accuracy_score(y_true, y_pred))
         for average_type in ['micro', 'macro', 'weighted']:
             if self.label_type == 'binary' and not average_type == 'macro':
                 continue
             self.model.logger.info(
-                '%s%s_precision: %.5f',
+                '%s%s_precision: %.7f',
                 prefix, average_type, precision_score(y_true, y_pred, average=average_type)
             )
             self.model.logger.info(
-                '%s%s_recall: %.5f',
+                '%s%s_recall: %.7f',
                 prefix, average_type, recall_score(y_true, y_pred, average=average_type)
             )
             self.model.logger.info(
-                '%s%s_f1: %.5f',
+                '%s%s_f1: %.7f',
                 prefix, average_type, f1_score(y_true, y_pred, average=average_type)
             )
         if self.label_type == 'multilabel':
-            self.model.logger.info("%shamming_loss: %.5f", prefix, hamming_loss(y_true, y_pred))
+            self.model.logger.info("%shamming_loss: %.7f", prefix, hamming_loss(y_true, y_pred))
 
     def _validation_epoch_end(self, outputs, prefix='val_'):
         labels = []

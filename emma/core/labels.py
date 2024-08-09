@@ -12,16 +12,16 @@ class Labeler(ABC):
 
     def __init__(self, encoder, labels: Optional[List] = None):
         self.encoder = encoder
-        self.labels = set(labels) if labels else set()
+        self.labels = labels if labels else []
         self.computed = False
         self.num_labels = len(self.labels)
 
     def collect(self, labels: List[Any]):
         for x in labels:
             if isinstance(x, (list, set, tuple)):
-                self.labels.update(x)
-            else:
-                self.labels.add(x)
+                [self.labels.append(a) for a in x if a not in self.labels]
+            elif x not in self.labels:
+                self.labels.append(x)
 
     def fit(self):
         self.computed = True

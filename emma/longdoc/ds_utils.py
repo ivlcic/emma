@@ -30,8 +30,14 @@ def _load_data(split_dir, corpus: str):
                     labeler = MulticlassLabeler()
                 label_set[split] = data[col].tolist()
 
-    for split in ['train', 'dev', 'test']:
-        labeler.collect(label_set[split])
+    l_file_path = os.path.join(split_dir, corpus, 'labels.csv')
+    if os.path.exists(l_file_path):
+        with open(l_file_path, 'r') as l_file:
+            labels = l_file.readlines()
+            labeler.collect(labels)
+    else:
+        for split in ['train', 'dev', 'test']:
+            labeler.collect(label_set[split])
     labeler.fit()
     for split in ['train', 'dev', 'test']:
         label_set[split] = labeler.vectorize(label_set[split])
