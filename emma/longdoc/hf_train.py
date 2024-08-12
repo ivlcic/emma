@@ -13,10 +13,10 @@ from torch import Tensor
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, PreTrainedModel, PreTrainedTokenizer, \
     TrainingArguments, Trainer, EvalPrediction
 
-from core.dataset import TruncatedDataset
 from .ds_utils import _load_data, _compute_output_name
 from ..core.args import CommonArguments
 from ..core.models import valid_model_names, model_name_map
+from ..core.dataset import TruncatedDataset
 
 logger = logging.getLogger('longdoc.hf_train')
 
