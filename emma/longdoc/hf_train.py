@@ -124,12 +124,12 @@ def main(args) -> int:
         pred = (prob > 0.5).float()
         return pred
 
-    epochs = []
+    log_epochs = []
 
     def compute_metrics(eval_pred: EvalPrediction, prefix: str = 'eval'):
         y_true = eval_pred.label_ids
         y_pred = eval_pred.predictions
-        logger.info("Epoch: %s", len(epochs))
+        logger.info("Epoch: %s", len(log_epochs))
         metric = {}
         a = accuracy_score(y_true, y_pred)
         for average_type in ['micro', 'macro', 'weighted']:
@@ -147,7 +147,7 @@ def main(args) -> int:
             hl = hamming_loss(y_true, y_pred)
             metric['hamming_loss'] = hl
 
-        epochs.append(metric)
+        log_epochs.append(metric)
         return metric
 
     result_path = str(os.path.join(args.data_out_dir, output_model_name))
@@ -177,15 +177,15 @@ def main(args) -> int:
     )
 
     trainer.train()
-    pd.DataFrame(epochs).to_csv(os.path.join(result_path, 'train_metrics.csv'))
+    pd.DataFrame(log_epochs).to_csv(os.path.join(result_path, 'train_metrics.csv'))
 
     predictions = trainer.predict(datasets['test'])
     metrics = predictions.metrics
-    epochs.append(metrics)
-    pd.DataFrame(epochs).to_csv(os.path.join(result_path, output_model_name + '_metrics.csv'))
+    log_epochs.append(metrics)
+    pd.DataFrame(log_epochs).to_csv(os.path.join(result_path, output_model_name + '_metrics.csv'))
     with open(os.path.join(result_path, output_model_name + '_metrics.json'), 'w', encoding='utf-8') as f:
         json.dump(
-            {'epochs': epochs, 'seed': args.seed, 'model_name': output_model_name},
+            {'epochs': log_epochs, 'seed': args.seed, 'model_name': output_model_name},
             f, ensure_ascii=False, indent=2, sort_keys=False,
         )
 
