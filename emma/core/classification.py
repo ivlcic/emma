@@ -60,10 +60,10 @@ class Classification(pl.LightningModule):
 
     def _compute_true_pred_loss(self, batch):
         if self.chunk:
-            ids = [data['ids'] for data in batch]
-            mask = [data['mask'] for data in batch]
+            ids = [data['input_ids'] for data in batch]
+            mask = [data['attention_mask'] for data in batch]
             token_type_ids = [data['token_type_ids'] for data in batch]
-            targets = [data['targets'][0] for data in batch]
+            targets = [data['labels'][0] for data in batch]
             length = [data['len'] for data in batch]
 
             ids = torch.cat(ids)
@@ -80,8 +80,8 @@ class Classification(pl.LightningModule):
 
             logits = self.model(ids, mask, token_type_ids, length)
         else:
-            ids = batch['ids'].to(self.device)
-            mask = batch['mask'].to(self.device)
+            ids = batch['input_ids'].to(self.device)
+            mask = batch['attention_mask'].to(self.device)
             token_type_ids = batch['token_type_ids'].to(self.device)
             labels = batch['labels'].to(self.device)
 
@@ -89,7 +89,7 @@ class Classification(pl.LightningModule):
 
         if self.label_type == 'multilabel':
             loss_fct = BCEWithLogitsLoss()  # sigmoid + binary cross entropy loss
-            loss = loss_fct(logits, labels.float())
+            loss = loss_fct(logits, labels)
             prob = torch.sigmoid(logits)
             pred = (prob > 0.5).float()
         else:

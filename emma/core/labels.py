@@ -38,6 +38,18 @@ class Labeler(ABC):
         result = self.encoder.transform(labels)
         return result
 
+    def labels_to_ids(self):
+        if not self.computed:
+            self.fit()
+        label_to_ids = dict(zip(self.encoder.classes_, range(len(self.encoder.classes_))))
+        return label_to_ids
+
+    def ids_to_labels(self):
+        if not self.computed:
+            self.fit()
+        ids_to_labels = {index: label for index, label in enumerate(self.encoder.classes_)}
+        return ids_to_labels
+
 
 class BinaryLabeler(Labeler):
     def __init__(self, labels: Optional[List] = None):

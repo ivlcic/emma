@@ -35,10 +35,10 @@ class TruncatedDataset(Dataset):
         token_type_ids = inputs["token_type_ids"]
 
         return {
-            'ids': torch.tensor(ids),
-            'mask': torch.tensor(mask),
+            'input_ids': torch.tensor(ids),
+            'attention_mask': torch.tensor(mask),
             'token_type_ids': torch.tensor(token_type_ids),
-            'labels': torch.tensor(self.labels[index])
+            'labels': torch.tensor(self.labels[index]).float()
         }
 
 
@@ -116,10 +116,10 @@ class TruncatedPlusTextRankDataset(Dataset):
         token_type_ids = (inputs["token_type_ids"][0], second_inputs["token_type_ids"][0])
 
         return {
-            'ids': torch.tensor(ids),
-            'mask': torch.tensor(mask),
+            'input_ids': torch.tensor(ids),
+            'attention_mask': torch.tensor(mask),
             'token_type_ids': torch.tensor(token_type_ids),
-            'labels': torch.tensor(self.labels[index])
+            'labels': torch.tensor(self.labels[index]).float()
         }
 
 
@@ -193,10 +193,10 @@ class TruncatedPlusRandomDataset(Dataset):
         token_type_ids = (inputs['token_type_ids'][0], second_inputs['token_type_ids'][0])
 
         result = {
-            'ids': torch.tensor(ids),
-            'mask': torch.tensor(mask),
+            'input_ids': torch.tensor(ids),
+            'attention_mask': torch.tensor(mask),
             'token_type_ids': torch.tensor(token_type_ids),
-            'labels': torch.tensor(self.labels[index])
+            'labels': torch.tensor(self.labels[index]).float()
         }
         return result
 
@@ -234,13 +234,13 @@ class ChunkDataset(Dataset):
             ids.append(torch.tensor(data['input_ids'][i], dtype=torch.long))
             mask.append(torch.tensor(data["attention_mask"][i], dtype=torch.long))
             token_type_ids.append(torch.tensor(data["token_type_ids"][i], dtype=torch.long))
-            targets.append(torch.tensor(self.labels[index], dtype=torch.long))
+            targets.append(torch.tensor(self.labels[index], dtype=torch.long).float())
 
         result = ({
-            'ids': ids,
-            'mask': mask,
+            'input_ids': ids,
+            'attention_mask': mask,
             'token_type_ids': token_type_ids,
-            'targets': targets,
+            'labels': targets,
             'len': [torch.tensor(len(targets), dtype=torch.long)]
         })
         return result

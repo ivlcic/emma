@@ -133,11 +133,11 @@ class TransEnc(Module):
             self.classifier = BertClassificationHead(768, self.labeler.num_labels, self.dropout)
         self.model.to(self.device)
 
-    def forward(self, ids, mask, token_type_ids):
+    def forward(self, input_ids, attention_mask, token_type_ids):
 
         if not self.has_additional_text:
             sequence_output, pooled_output = self.model(
-                ids, attention_mask=mask, token_type_ids=token_type_ids, return_dict=False
+                input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids, return_dict=False
             )
             if 'xlm' in self.model_name:
                 model_output = sequence_output
@@ -145,10 +145,12 @@ class TransEnc(Module):
                 model_output = pooled_output
         else:
             sequence_output, pooled_output = self.model(
-                ids[:, 0, :], attention_mask=mask[:, 0, :], token_type_ids=token_type_ids[:, 0, :], return_dict=False
+                input_ids[:, 0, :], attention_mask=attention_mask[:, 0, :], token_type_ids=token_type_ids[:, 0, :],
+                return_dict=False
             )
             additional_sequence_output, additional_pooled_output = self.model(
-                ids[:, 1, :], attention_mask=mask[:, 1, :], token_type_ids=token_type_ids[:, 1, :], return_dict=False
+                input_ids[:, 1, :], attention_mask=attention_mask[:, 1, :], token_type_ids=token_type_ids[:, 1, :],
+                return_dict=False
             )
             if 'xlm' in self.model_name:
                 model_output = torch.cat((sequence_output, additional_sequence_output), dim=1)  # batch_size, 768*2

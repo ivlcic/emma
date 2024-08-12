@@ -1,5 +1,7 @@
 import os
 import ast
+from typing import List, Dict
+
 import torch
 import pandas as pd
 
@@ -20,6 +22,8 @@ def _load_data(split_dir, corpus: str):
         if not os.path.isfile(file_path):
             continue
         data = pd.read_csv(file_path)
+        if 'train' in split:  # do shuffle
+            data = data.sample(frac=1).reset_index(drop=True)  # seed is set before
         column_names = data.columns.tolist()
         for col in column_names:
             if 'text' in col:
@@ -74,7 +78,7 @@ def _chunk_collate_fn(batches):
     return [{key: torch.stack(value) for key, value in batch.items()} for batch in batches]
 
 
-def _create_dataloader(module: Module, text_set, label_set, batch_size, num_workers):
+def _create_dataloader(module: Module, text_set, label_set, batch_size, num_workers) -> Dict[str, DataLoader]:
     """
     Create appropriate dataloaders for the given data
     :param module: module that contains the dataset class, tokenizer and max available text length
@@ -93,7 +97,7 @@ def _create_dataloader(module: Module, text_set, label_set, batch_size, num_work
             shuffle = True
         dataset = module.dataset_class(text_set[split], label_set[split], module.tokenizer, module.get_max_len())
         if isinstance(dataset, ChunkDataset):
-            dataloaders[split] = DataLoader(
+            dataloaders[split]: DataLoader = DataLoader(
                 dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, pin_memory=True,
                 collate_fn=_chunk_collate_fn
             )
