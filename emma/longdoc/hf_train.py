@@ -97,12 +97,16 @@ def main(args) -> int:
     if args.ckpt:
         output_model_name = args.ckpt.split('--')[0]
 
+    problem_type = 'single_label_classification'
+    if 'multilabel' == labeler.get_type_code():
+        problem_type = 'multi_label_classification'
+
     use_cuda = torch.cuda.is_available()
     device = torch.device('cuda' if use_cuda else 'cpu')
     model: PreTrainedModel = AutoModelForSequenceClassification.from_pretrained(
         model_name_map[args.model_name], cache_dir=args.tmp_dir, num_labels=labeler.num_labels,
         id2label=labeler.ids_to_labels(), label2id=labeler.labels_to_ids(),
-        problem_type="multi_label_classification"
+        problem_type=problem_type
     )
     model.to(device)
     tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(
@@ -115,7 +119,6 @@ def main(args) -> int:
             continue
         datasets[split] = TruncatedDataset(text_set[split], label_set[split], tokenizer, 512)
 
-    logger.debug("Constructing task")
     logger.info(f'Loaded train[{len(text_set["train"])}] dev[{len(text_set["dev"])}] test[{len(text_set["test"])}]')
     logger.info(f'Loaded {labeler} with {labeler.num_labels}')
 
@@ -161,9 +164,9 @@ def main(args) -> int:
         load_best_model_at_end=True,
         save_strategy='epoch',
         learning_rate=args.lr,
-        save_total_limit=1,
-        metric_for_best_model='micro.f1',
-        greater_is_better=True,
+        #save_total_limit=1,
+        #metric_for_best_model='micro.f1',
+        #greater_is_better=True,
         logging_strategy='epoch',
     )
 
@@ -175,7 +178,10 @@ def main(args) -> int:
         compute_metrics=compute_metrics,
         preprocess_logits_for_metrics=preprocess_logits_for_metrics
     )
-
+    logger.info(
+        f'Will start training {model} using tokenizer {tokenizer} with '
+        f'batch size {args.batch}, lr:{args.lr} for {args.epochs} epochs.'
+    )
     trainer.train()
     pd.DataFrame(log_epochs).to_csv(os.path.join(result_path, 'train_metrics.csv'))
 
