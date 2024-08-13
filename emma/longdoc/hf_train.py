@@ -164,7 +164,7 @@ def main(args) -> int:
         load_best_model_at_end=True,
         save_strategy='epoch',
         learning_rate=args.lr,
-        #save_total_limit=1,
+        save_total_limit=5,
         #metric_for_best_model='micro.f1',
         #greater_is_better=True,
         logging_strategy='epoch',
@@ -195,5 +195,5 @@ def main(args) -> int:
             f, ensure_ascii=False, indent=2, sort_keys=False,
         )
 
-    remove_checkpoint_dir(result_path)
+    # remove_checkpoint_dir(result_path)
     return 0
