@@ -21,7 +21,7 @@ from ..core.dataset import TruncatedDataset
 logger = logging.getLogger('longdoc.hf_train')
 
 corpora = {
-    'hyperpartisan', 'eurlex', 'eurlexinv', '20news', 'booksummaries', 'klp1s0'
+    'hyperpartisan', 'eurlex', 'eurlexinv', '20news', 'booksummaries', 'news_sl_p1s0'
 }
 
 
