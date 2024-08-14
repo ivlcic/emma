@@ -68,12 +68,16 @@ class Module(torch.nn.Module):
         self.dropout = torch.nn.Dropout(self.dropout_rate)
         self.model = None
         self.tokenizer = None
+        self.average_labels_per_sample = 0
 
     def get_max_len(self) -> int:
         return self.tokenizer.model_max_length
 
     def set_dataset_class(self, dataset_class: Type):
         self.dataset_class = dataset_class
+
+    def set_average_labels_per_sample(self, average_labels_per_sample: float):
+        self.average_labels_per_sample = average_labels_per_sample
 
     def get_dataset_class(self) -> Type:
         return self.dataset_class

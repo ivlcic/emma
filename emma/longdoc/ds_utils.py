@@ -1,6 +1,6 @@
 import os
 import ast
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 import torch
 import pandas as pd
@@ -78,7 +78,7 @@ def _chunk_collate_fn(batches):
     return [{key: torch.stack(value) for key, value in batch.items()} for batch in batches]
 
 
-def _create_dataloader(module: Module, text_set, label_set, batch_size, num_workers) -> Dict[str, DataLoader]:
+def _create_dataloader(module: Module, text_set, label_set, batch_size, num_workers) -> Tuple[Dict[str, DataLoader], float]:
     """
     Create appropriate dataloaders for the given data
     :param module: module that contains the dataset class, tokenizer and max available text length
@@ -89,6 +89,7 @@ def _create_dataloader(module: Module, text_set, label_set, batch_size, num_work
     :return: set of dataloaders for train/dev/test splits, keys=['train', 'dev', 'test']
     """
     dataloaders = {}
+    average_labels_per_sample = 0
     for split in ['dev', 'test', 'train']:
         if split not in text_set.keys():
             continue
@@ -96,6 +97,7 @@ def _create_dataloader(module: Module, text_set, label_set, batch_size, num_work
         if split == 'train':
             shuffle = True
         dataset = module.dataset_class(text_set[split], label_set[split], module.tokenizer, module.get_max_len())
+        average_labels_per_sample += dataset.average_labels
         if isinstance(dataset, ChunkDataset):
             dataloaders[split]: DataLoader = DataLoader(
                 dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, pin_memory=True,
@@ -106,7 +108,7 @@ def _create_dataloader(module: Module, text_set, label_set, batch_size, num_work
                 dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, pin_memory=True
             )
 
-    return dataloaders
+    return dataloaders, average_labels_per_sample / 3
 
 
 def _compute_output_name(args):

@@ -13,6 +13,7 @@ from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_sc
 from transformers.optimization import get_linear_schedule_with_warmup
 
 from .dataset import ChunkDataset
+from .metrics import r_precision_at_k
 from .models import Module
 
 logger = logging.getLogger('core.class')
@@ -125,7 +126,7 @@ class Classification(pl.LightningModule):
             self.test_step_outputs.append(outputs)
         return outputs
 
-    def _logout_metrics(self, prefix: str, y_true, y_pred, k: int = 5):
+    def _logout_metrics(self, prefix: str, y_true, y_pred, y_prob, k: int = 5):
         self.model.logger.info(f'Epoch: {self.current_epoch}')
         self.model.logger.info(f'{prefix}accuracy: %.7f', accuracy_score(y_true, y_pred))
         for average_type in ['micro', 'macro', 'weighted']:
@@ -142,8 +143,9 @@ class Classification(pl.LightningModule):
             )
         if self.label_type == 'multilabel':
             self.model.logger.info(f'{prefix}hamming_loss: %.7f', hamming_loss(y_true, y_pred))
-            self.model.logger.info(f'{prefix}ndcg@%s: %.7f', k, ndcg_score(y_true, y_pred, k=k))
-            self.model.logger.info(f'{prefix}r-precision@%s: %.7f', k, r_precision_at_k(y_true, y_pred, k=k))
+            self.model.logger.info(f'{prefix}ndcg@%s: %.7f', k, ndcg_score(y_true, y_prob, k=k))
+            self.model.logger.info(f'{prefix}ndcg: %.7f', k, ndcg_score(y_true, y_prob))
+            self.model.logger.info(f'{prefix}r-precision@%s: %.7f', k, r_precision_at_k(y_true, y_prob, k=k))
 
     def _validation_epoch_end(self, outputs, prefix='val_'):
         labels = []
@@ -165,7 +167,9 @@ class Classification(pl.LightningModule):
         y_true = labels.numpy()
         y_prob = probabilities.numpy()
 
-        self._logout_metrics(prefix, y_true, y_pred, y_prob)
+        self._logout_metrics(
+            prefix, y_true, y_pred, y_prob, round(self.model.average_labels_per_sample)
+        )
 
     def on_validation_epoch_end(self):
         self._validation_epoch_end(self.validation_step_outputs)

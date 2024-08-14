@@ -53,6 +53,9 @@ class TruncatedPlusTextRankDataset(Dataset):
         self.max_len = max_len
         self.nlp = spacy.load("en_core_web_sm")
         self.nlp.add_pipe("textrank")
+        labels_per_sample = np.sum(labels, axis=1)
+        self.average_labels = np.mean(labels_per_sample)
+        self.std_labels = np.std(labels_per_sample, ddof=1)
 
     def __len__(self):
         return len(self.text)
@@ -133,6 +136,9 @@ class TruncatedPlusRandomDataset(Dataset):
         self.labels = labels
         self.max_len = max_len
         self.nlp = spacy.load("en_core_web_sm")
+        labels_per_sample = np.sum(labels, axis=1)
+        self.average_labels = np.mean(labels_per_sample)
+        self.std_labels = np.std(labels_per_sample, ddof=1)
 
     def __len__(self):
         return len(self.text)
@@ -211,6 +217,9 @@ class ChunkDataset(Dataset):
         self.labels = labels
         self.overlap_len = overlap_len
         self.chunk_len = chunk_len
+        labels_per_sample = np.sum(labels, axis=1)
+        self.average_labels = np.mean(labels_per_sample)
+        self.std_labels = np.std(labels_per_sample, ddof=1)
 
     def __len__(self):
         return len(self.labels)
