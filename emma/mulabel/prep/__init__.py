@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pandas.api.types as ptypes
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 
 from argparse import ArgumentParser
 from collections import Counter
@@ -430,48 +431,99 @@ def prep_corpus_analyze(arg) -> int:
         tag_dict['tag'].append(label)
         tag_dict['count'].append(count)
 
-    tag_df = pd.DataFrame(tag_dict).sort_values('tag', ascending=False)
-    tag_df.head(10)
+    tag_df = pd.DataFrame(tag_dict).sort_values('tag', ascending=True)
 
     num_tags = tag_df.shape[0]
     logger.info('Number of labels: %s', num_tags)
 
-    ocurr10_bins = [i for i in range(0, 200, 10)]
-    ocurr10_histogram_counts = pd.cut(tag_df['count'], bins=ocurr10_bins).value_counts().sort_index()
-    ocurr10_histogram_percentages = (ocurr10_histogram_counts / ocurr10_histogram_counts.sum()) * 100
+    # ocurr10_bins = [i for i in range(0, 200, 10)]
+    # ocurr10_histogram_counts = pd.cut(tag_df['count'], bins=ocurr10_bins).value_counts().sort_index()
+    # ocurr10_histogram_percentages = (ocurr10_histogram_counts / ocurr10_histogram_counts.sum()) * 100
+    #
+    # ocurr100_bins = [i for i in range(0, 3000, 100)]
+    # ocurr100_histogram_counts = pd.cut(tag_df['count'], bins=ocurr100_bins).value_counts().sort_index()
+    # ocurr100_histogram_percentages = (ocurr100_histogram_counts / ocurr100_histogram_counts.sum()) * 100
+    #
+    # ocurr1000_bins = [i for i in range(0, 20000, 1000)]
+    # ocurr1000_histogram_counts = pd.cut(tag_df['count'], bins=ocurr1000_bins).value_counts().sort_index()
+    # ocurr1000_histogram_percentages = (ocurr1000_histogram_counts / ocurr1000_histogram_counts.sum()) * 100
+    #
+    # fig, axs = plt.subplots(1, 3, figsize=(20, 5))  # 1 row, 2 columns
+    # ocurr10_histogram_percentages.plot(
+    #     ax=axs[0], kind='bar',
+    #     title='Histogram of Label Occurrences (10 scale)',
+    #     xlabel='Number of occurrences',
+    #     ylabel='Percentage of Labels'
+    # )
+    # axs[0].set_xticklabels(ocurr10_bins[1:])
+    #
+    # ocurr100_histogram_percentages.plot(
+    #     ax=axs[1], kind='bar',
+    #     title='Histogram of Label Occurrences (100 scale)',
+    #     xlabel='Number of occurrences',
+    #     ylabel='Percentage of Labels'
+    # )
+    # axs[1].set_xticklabels(ocurr100_bins[1:])
+    #
+    # ocurr1000_histogram_percentages.plot(
+    #     ax=axs[2], kind='bar',
+    #     title='Histogram of Label Occurrences (1000 scale)',
+    #     xlabel='Number of occurrences',
+    #     ylabel='Percentage of Labels'
+    # )
+    # axs[2].set_xticklabels(ocurr1000_bins[1:])
+    # plt.show()
+    # Create the plot
+    bin_size = 5
+    labels_bins = [i for i in range(0, 501, bin_size)]
+    labels_bins.append(float('inf'))
+    label_histogram_counts = pd.cut(tag_df['count'], bins=labels_bins).value_counts().sort_index()
+    print(label_histogram_counts.head())
+    label_histogram_percentages = (label_histogram_counts / num_tags) * 100
+    ax = label_histogram_counts.plot(kind='bar', width=0.9)
 
-    ocurr100_bins = [i for i in range(0, 3000, 100)]
-    ocurr100_histogram_counts = pd.cut(tag_df['count'], bins=ocurr100_bins).value_counts().sort_index()
-    ocurr100_histogram_percentages = (ocurr100_histogram_counts / ocurr100_histogram_counts.sum()) * 100
+    # Get the current tick locations and labels
+    ticks = ax.get_xticks()
+    labels = [item.get_text() for item in ax.get_xticklabels()]
 
-    ocurr1000_bins = [i for i in range(0, 20000, 1000)]
-    ocurr1000_histogram_counts = pd.cut(tag_df['count'], bins=ocurr1000_bins).value_counts().sort_index()
-    ocurr1000_histogram_percentages = (ocurr1000_histogram_counts / ocurr1000_histogram_counts.sum()) * 100
+    # Keep only every 10th tick and label
+    new_ticks = ticks[::10]
+    new_labels = [str(int(tick * bin_size)) if i % 2 == 0 else '' for i, tick in enumerate(new_ticks)]
 
-    fig, axs = plt.subplots(1, 3, figsize=(20, 5))  # 1 row, 2 columns
-    ocurr10_histogram_percentages.plot(
-        ax=axs[0], kind='bar',
-        title='Histogram of Label Occurrences (10 scale)',
-        xlabel='Number of occurrences',
-        ylabel='Percentage of Labels'
-    )
-    axs[0].set_xticklabels(ocurr10_bins[1:])
+    # Set the new ticks and labels
+    ax.set_xticks(new_ticks)
+    ax.set_xticklabels(new_labels)
+    ax.yaxis.set_major_locator(ticker.MultipleLocator(base=100.0))  # Adjust base
 
-    ocurr100_histogram_percentages.plot(
-        ax=axs[1], kind='bar',
-        title='Histogram of Label Occurrences (100 scale)',
-        xlabel='Number of occurrences',
-        ylabel='Percentage of Labels'
-    )
-    axs[1].set_xticklabels(ocurr100_bins[1:])
+    # Add a dotted vertical line at the second xtick
+    ten_xtick = 1.5
+    ax.axvline(x=ten_xtick, color='red', linestyle=':', linewidth=2)
 
-    ocurr1000_histogram_percentages.plot(
-        ax=axs[2], kind='bar',
-        title='Histogram of Label Occurrences (1000 scale)',
-        xlabel='Number of occurrences',
-        ylabel='Percentage of Labels'
-    )
-    axs[2].set_xticklabels(ocurr1000_bins[1:])
+    sum_10 = tag_df[tag_df['count'] <= 10]['count'].count()
+    ax.annotate(f'{sum_10} labels\n(≤ 10 occurrences)', xy=(ten_xtick, ax.get_ylim()[1]),
+                xytext=(10, -30), textcoords='offset points', ha='left', va='bottom',
+                bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),)
+                #arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
+
+    fifty_xtick = 10.5
+    ax.axvline(x=fifty_xtick, color='red', linestyle=':', linewidth=2)
+    sum_50 = tag_df[tag_df['count'] <= 50]['count'].count()
+    ax.annotate(f'{sum_50} labels\n(≤ 50 occurrences)', xy=(fifty_xtick, ax.get_ylim()[1]),
+                xytext=(10, -200), textcoords='offset points', ha='left', va='bottom',
+                bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),)
+                #arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
+
+    fiveh_xtick = 100.5
+    ax.axvline(x=fiveh_xtick, color='red', linestyle=':', linewidth=2)
+    sum_500 = tag_df[tag_df['count'] > 500]['count'].count()
+    ax.annotate(f'{sum_500} labels\n(> 500 occurrences)', xy=(fiveh_xtick, ax.get_ylim()[1]),
+                xytext=(-115, -370), textcoords='offset points', ha='left', va='bottom',
+                bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),)
+                #arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
+
+    plt.xlabel('Number of occurrences in documents')
+    plt.ylabel('Number of labels')
+    plt.title('Histogram of Label Occurrences')
     plt.show()
 
     tags_diversity = {}
