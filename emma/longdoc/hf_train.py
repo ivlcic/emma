@@ -3,16 +3,18 @@ import logging
 import os
 import random
 import shutil
+import numpy as np
 from argparse import ArgumentParser
 
 import pandas as pd
 import torch
 from lightning import seed_everything
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, hamming_loss
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, hamming_loss, ndcg_score
 from torch import Tensor
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, PreTrainedModel, PreTrainedTokenizer, \
     TrainingArguments, Trainer, EvalPrediction
 
+from core.metrics import r_precision_at_k
 from .ds_utils import _load_data, _compute_output_name
 from ..core.args import CommonArguments
 from ..core.models import valid_model_names, model_name_map
@@ -114,27 +116,36 @@ def main(args) -> int:
     )
 
     datasets = {}
+    average_labels_per_sample = 0
     for split in ['dev', 'test', 'train']:
         if split not in text_set.keys():
             continue
         datasets[split] = TruncatedDataset(text_set[split], label_set[split], tokenizer, 512)
+        average_labels_per_sample += datasets[split].average_labels
+    average_labels_per_sample /= 3
 
     logger.info(f'Loaded train[{len(text_set["train"])}] dev[{len(text_set["dev"])}] test[{len(text_set["test"])}]')
     logger.info(f'Loaded {labeler} with {labeler.num_labels}')
 
     def preprocess_logits_for_metrics(logits: Tensor, _: Tensor):
-        prob = torch.sigmoid(logits)
-        pred = (prob > 0.5).float()
-        return pred
+        if labeler.get_type_code() == 'multilabel':
+            prob = torch.sigmoid(logits)
+        else:
+            prob = torch.softmax(logits, dim=-1)
+        return prob
 
     log_epochs = []
+    k = round(average_labels_per_sample)
 
-    def compute_metrics(eval_pred: EvalPrediction, prefix: str = 'eval'):
+    def compute_metrics(eval_pred: EvalPrediction):
         y_true = eval_pred.label_ids
-        y_pred = eval_pred.predictions
+        y_prob = eval_pred.predictions
+        if labeler.get_type_code() == 'multilabel':
+            y_pred = (y_prob > 0.5).astype(np.float32)
+        else:
+            y_pred = np.argmax(y_prob, axis=-1)
         logger.info("Epoch: %s", len(log_epochs))
         metric = {}
-        a = accuracy_score(y_true, y_pred)
         for average_type in ['micro', 'macro', 'weighted']:
             if labeler.get_type_code() == 'binary' and not average_type == 'macro':
                 continue
@@ -144,11 +155,13 @@ def main(args) -> int:
             metric[f'{average_type}.f1'] = f1
             metric[f'{average_type}.p'] = p
             metric[f'{average_type}.r'] = r
-
-        metric['accuracy'] = a
+        metric['accuracy'] = accuracy_score(y_true, y_pred)
+        metric['m_name'] = output_model_name
         if labeler.get_type_code() == 'multilabel':
-            hl = hamming_loss(y_true, y_pred)
-            metric['hamming_loss'] = hl
+            metric[f'r-precision@{k}'], _ = r_precision_at_k(y_true, y_prob, k=k)
+            metric[f'ndcg@{k}'] = ndcg_score(y_true, y_prob, k=k)
+            metric[f'ndcg'] = ndcg_score(y_true, y_prob)
+            metric['hamming_loss'] = hamming_loss(y_true, y_pred)
 
         log_epochs.append(metric)
         return metric
@@ -173,7 +186,7 @@ def main(args) -> int:
     trainer = Trainer(
         model=model,
         args=training_args,
-        train_dataset=datasets['train'],
+        train_dataset=datasets['test'],
         eval_dataset=datasets['dev'],
         compute_metrics=compute_metrics,
         preprocess_logits_for_metrics=preprocess_logits_for_metrics

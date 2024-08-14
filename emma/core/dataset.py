@@ -13,6 +13,9 @@ class TruncatedDataset(Dataset):
         self.text = text
         self.labels = labels
         self.max_len = max_len
+        labels_per_sample = np.sum(labels, axis=1)
+        self.average_labels = np.mean(labels_per_sample)
+        self.std_labels = np.std(labels_per_sample, ddof=1)
 
     def __len__(self):
         return len(self.text)

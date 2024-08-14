@@ -9,7 +9,7 @@ import torch.optim as optim
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss
 
 from torchmetrics import Accuracy, F1Score
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, hamming_loss
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, hamming_loss, ndcg_score
 from transformers.optimization import get_linear_schedule_with_warmup
 
 from .dataset import ChunkDataset
@@ -97,12 +97,12 @@ class Classification(pl.LightningModule):
             loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))  # softmax + cross entropy loss
             prob = torch.softmax(logits, dim=-1)
             _, pred = torch.max(prob, 1)
-        return labels, pred, loss
+        return labels, pred, loss, prob
 
     def training_step(self, batch, batch_idx):
         start = time.time()
         metrics = {}
-        labels, pred, loss = self._compute_true_pred_loss(batch)
+        labels, pred, loss, prob = self._compute_true_pred_loss(batch)
 
         metrics['loss'] = loss
         self._log_step('train_', pred, labels, loss, start)
@@ -111,10 +111,11 @@ class Classification(pl.LightningModule):
     def validation_step(self, batch, batch_idx, prefix='val_'):
         start = time.time()
         outputs = {}
-        labels, pred, loss = self._compute_true_pred_loss(batch)
+        labels, pred, loss, prob = self._compute_true_pred_loss(batch)
 
         outputs[prefix + 'loss'] = loss
         outputs['preds'] = pred
+        outputs['prob'] = prob
         outputs['y'] = labels
 
         self._log_step(prefix, pred, labels, loss, start)
@@ -124,48 +125,47 @@ class Classification(pl.LightningModule):
             self.test_step_outputs.append(outputs)
         return outputs
 
-    def _logout_metrics(self, prefix: str, y_true, y_pred):
-        self.model.logger.info("Epoch: %s", self.current_epoch)
-        self.model.logger.info("%saccuracy: %.7f", prefix, accuracy_score(y_true, y_pred))
+    def _logout_metrics(self, prefix: str, y_true, y_pred, k: int = 5):
+        self.model.logger.info(f'Epoch: {self.current_epoch}')
+        self.model.logger.info(f'{prefix}accuracy: %.7f', accuracy_score(y_true, y_pred))
         for average_type in ['micro', 'macro', 'weighted']:
             if self.label_type == 'binary' and not average_type == 'macro':
                 continue
             self.model.logger.info(
-                '%s%s_precision: %.7f',
-                prefix, average_type, precision_score(y_true, y_pred, average=average_type)
+                f'{prefix}{average_type}_precision: %.7f', precision_score(y_true, y_pred, average=average_type)
             )
             self.model.logger.info(
-                '%s%s_recall: %.7f',
-                prefix, average_type, recall_score(y_true, y_pred, average=average_type)
+                f'{prefix}{average_type}_recall: %.7f', recall_score(y_true, y_pred, average=average_type)
             )
             self.model.logger.info(
-                '%s%s_f1: %.7f',
-                prefix, average_type, f1_score(y_true, y_pred, average=average_type)
+                f'{prefix}{average_type}_f1: %.7f', f1_score(y_true, y_pred, average=average_type)
             )
         if self.label_type == 'multilabel':
-            self.model.logger.info("%shamming_loss: %.7f", prefix, hamming_loss(y_true, y_pred))
+            self.model.logger.info(f'{prefix}hamming_loss: %.7f', hamming_loss(y_true, y_pred))
+            self.model.logger.info(f'{prefix}ndcg@%s: %.7f', k, ndcg_score(y_true, y_pred, k=k))
+            self.model.logger.info(f'{prefix}r-precision@%s: %.7f', k, r_precision_at_k(y_true, y_pred, k=k))
 
     def _validation_epoch_end(self, outputs, prefix='val_'):
         labels = []
         predictions = []
+        probabilities = []
         for output in outputs:
             for out_labels in output['y'].detach().cpu():
                 labels.append(out_labels)
             for out_predictions in output['preds'].detach().cpu():
                 predictions.append(out_predictions)
+            for out_probabilities in output['prob'].detach().cpu():
+                probabilities.append(out_probabilities)
 
         labels = torch.stack(labels).int()
         predictions = torch.stack(predictions)
+        probabilities = torch.stack(probabilities)
 
         y_pred = predictions.numpy()
         y_true = labels.numpy()
+        y_prob = probabilities.numpy()
 
-        #if self.label_type == 'multilabel' or self.label_type == 'binary':
-        #    y_pred_labels = np.where(y_pred > 0.5, 1, 0)
-        #else:
-        #    y_pred_labels = np.argmax(y_pred, axis=1)
-
-        self._logout_metrics(prefix, y_true, y_pred)
+        self._logout_metrics(prefix, y_true, y_pred, y_prob)
 
     def on_validation_epoch_end(self):
         self._validation_epoch_end(self.validation_step_outputs)
