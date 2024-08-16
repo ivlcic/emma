@@ -36,7 +36,7 @@ class TruncatedDataset(Dataset):
         ids = inputs['input_ids']
         mask = inputs['attention_mask']
         token_type_ids = inputs["token_type_ids"]
-
+        label_ids = torch.tensor(self.labels[index]).float().nonzero().squeeze().tolist()
         return {
             'input_ids': torch.tensor(ids),
             'attention_mask': torch.tensor(mask),

@@ -78,7 +78,7 @@ def _chunk_collate_fn(batches):
     return [{key: torch.stack(value) for key, value in batch.items()} for batch in batches]
 
 
-def _create_dataloader(module: Module, text_set, label_set, batch_size, num_workers) -> Tuple[Dict[str, DataLoader], float]:
+def _create_dataloader(module: Module, text_set, label_set, batch_size, num_workers) -> Dict[str, DataLoader]:
     """
     Create appropriate dataloaders for the given data
     :param module: module that contains the dataset class, tokenizer and max available text length
@@ -107,8 +107,8 @@ def _create_dataloader(module: Module, text_set, label_set, batch_size, num_work
             dataloaders[split] = DataLoader(
                 dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, pin_memory=True
             )
-
-    return dataloaders, average_labels_per_sample / 3
+    module.set_average_labels_per_sample(average_labels_per_sample / 3)
+    return dataloaders
 
 
 def _compute_output_name(args):

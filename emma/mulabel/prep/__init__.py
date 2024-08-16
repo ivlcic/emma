@@ -436,44 +436,6 @@ def prep_corpus_analyze(arg) -> int:
     num_tags = tag_df.shape[0]
     logger.info('Number of labels: %s', num_tags)
 
-    # ocurr10_bins = [i for i in range(0, 200, 10)]
-    # ocurr10_histogram_counts = pd.cut(tag_df['count'], bins=ocurr10_bins).value_counts().sort_index()
-    # ocurr10_histogram_percentages = (ocurr10_histogram_counts / ocurr10_histogram_counts.sum()) * 100
-    #
-    # ocurr100_bins = [i for i in range(0, 3000, 100)]
-    # ocurr100_histogram_counts = pd.cut(tag_df['count'], bins=ocurr100_bins).value_counts().sort_index()
-    # ocurr100_histogram_percentages = (ocurr100_histogram_counts / ocurr100_histogram_counts.sum()) * 100
-    #
-    # ocurr1000_bins = [i for i in range(0, 20000, 1000)]
-    # ocurr1000_histogram_counts = pd.cut(tag_df['count'], bins=ocurr1000_bins).value_counts().sort_index()
-    # ocurr1000_histogram_percentages = (ocurr1000_histogram_counts / ocurr1000_histogram_counts.sum()) * 100
-    #
-    # fig, axs = plt.subplots(1, 3, figsize=(20, 5))  # 1 row, 2 columns
-    # ocurr10_histogram_percentages.plot(
-    #     ax=axs[0], kind='bar',
-    #     title='Histogram of Label Occurrences (10 scale)',
-    #     xlabel='Number of occurrences',
-    #     ylabel='Percentage of Labels'
-    # )
-    # axs[0].set_xticklabels(ocurr10_bins[1:])
-    #
-    # ocurr100_histogram_percentages.plot(
-    #     ax=axs[1], kind='bar',
-    #     title='Histogram of Label Occurrences (100 scale)',
-    #     xlabel='Number of occurrences',
-    #     ylabel='Percentage of Labels'
-    # )
-    # axs[1].set_xticklabels(ocurr100_bins[1:])
-    #
-    # ocurr1000_histogram_percentages.plot(
-    #     ax=axs[2], kind='bar',
-    #     title='Histogram of Label Occurrences (1000 scale)',
-    #     xlabel='Number of occurrences',
-    #     ylabel='Percentage of Labels'
-    # )
-    # axs[2].set_xticklabels(ocurr1000_bins[1:])
-    # plt.show()
-    # Create the plot
     bin_size = 5
     labels_bins = [i for i in range(0, 501, bin_size)]
     labels_bins.append(float('inf'))
@@ -523,7 +485,7 @@ def prep_corpus_analyze(arg) -> int:
 
     plt.xlabel('Number of occurrences in documents')
     plt.ylabel('Number of labels')
-    plt.title('Histogram of Label Occurrences')
+    #plt.title('Histogram of Label Occurrences')
     plt.show()
 
     tags_diversity = {}

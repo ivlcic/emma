@@ -66,6 +66,7 @@ class Module(torch.nn.Module):
         self.has_additional_text = False
         self.dropout_rate = 0.0
         self.dropout = torch.nn.Dropout(self.dropout_rate)
+        self.hidden_size = 768  # must be set when extending
         self.model = None
         self.tokenizer = None
         self.average_labels_per_sample = 0
@@ -88,11 +89,12 @@ class Module(torch.nn.Module):
     def set_dropout(self, dropout_rate: float):
         self.dropout_rate = dropout_rate
         self.dropout = torch.nn.Dropout(dropout_rate)
+        self.__init_classifier()
 
 
 class XlmClassificationHead(torch.nn.Module):
 
-    def __init__(self, hidden_size: int, num_labels: int, dropout: torch.nn.Dropout):
+    def __init__(self, hidden_size: int, dropout: torch.nn.Dropout, num_labels: int):
         super().__init__()
         self.dense = torch.nn.Linear(hidden_size, hidden_size)
         self.dropout = dropout
@@ -131,11 +133,18 @@ class TransEnc(Module):
             raise RuntimeError(f'Only {TransEnc._allowed_models} are allowed!')
         self.model: PreTrainedModel = AutoModel.from_pretrained(model_name, cache_dir=cache_model_dir)
         self.tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_model_dir)
-        if 'xlm' in model_name:
-            self.classifier = XlmClassificationHead(768, self.labeler.num_labels, self.dropout)
-        else:
-            self.classifier = BertClassificationHead(768, self.labeler.num_labels, self.dropout)
+        self.__init_classifier()
         self.model.to(self.device)
+
+    def __init_classifier(self):
+        if 'xlm' in self.model_name:
+            self.classifier = XlmClassificationHead(
+                hidden_size=self.hidden_size, dropout=self.dropout, num_labels=self.labeler.num_labels
+            )
+        else:
+            self.classifier = BertClassificationHead(
+                hidden_size=self.hidden_size, dropout=self.dropout, num_labels=self.labeler.num_labels
+            )
 
     def forward(self, input_ids, attention_mask, token_type_ids):
 
@@ -168,16 +177,22 @@ class TransEnc(Module):
 class TransEncPlus(TransEnc):
     def __init__(self, model_name: str, labeler: Labeler, cache_model_dir: str, device: str):
         super().__init__(model_name, labeler, cache_model_dir, device)
+        self.hidden_size = self.hidden_size * 2
         self.set_has_additional_text(True)
         self.set_dataset_class(TruncatedPlusRandomDataset)
-        self.classifier = torch.nn.Linear(768*2, self.labeler.num_labels)
+        self.__init_classifier()
 
 
 class ToTransEncModel(Module):
+    _allowed_models = ['bert-base-uncased', 'bert-base-multilingual-cased']
     def __init__(self, model_name: str, labeler: Labeler, cache_model_dir: str, device: str):
         super().__init__(model_name, labeler, cache_model_dir, device)
+        if model_name not in ToTransEncModel._allowed_models:
+            raise RuntimeError(f'Only {ToTransEncModel._allowed_models} are allowed!')
+
         self.model = AutoModel.from_pretrained(model_name, cache_dir=cache_model_dir)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_model_dir)
+        #TODO: works only for bert type of models
         self.trans = torch.nn.TransformerEncoderLayer(d_model=768, nhead=2)
         self.fc = torch.nn.Linear(768, 30)
         self.classifier = torch.nn.Linear(30, self.labeler.num_labels)
@@ -214,11 +229,14 @@ class LongformerClass(Module):
             gradient_checkpointing=True,
             cache_dir=cache_model_dir
         )
-        self.classifier = LongformerClassificationHead(
-            hidden_size=768, hidden_dropout_prob=self.dropout, num_labels=self.labeler.num_labels
-        )
         self.tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_model_dir)
         self.dataset_class = TruncatedDataset
+        self.__init_classifier()
+
+    def __init_classifier(self):
+        self.classifier = XlmClassificationHead(
+            hidden_size=self.hidden_size, dropout=self.dropout, num_labels=self.labeler.num_labels
+        )
 
     def forward(self, ids, mask, token_type_ids):
         # Initialize global attention on CLS token
@@ -233,29 +251,6 @@ class LongformerClass(Module):
         )
         logits = self.classifier(sequence_output)
         return logits
-
-
-class LongformerClassificationHead(torch.nn.Module):
-    # This class is from https://huggingface.co/transformers/_modules/transformers/models/longformer
-    # /modeling_longformer.html#LongformerForSequenceClassification
-    """Head for sentence-level classification tasks."""
-
-    def __init__(self, hidden_size: int, hidden_dropout_prob: torch.nn.Dropout, num_labels: int):
-        # config from transformers.LongformerConfig.from_pretrained('allenai/longformer-base-4096')
-        super().__init__()
-        self.dense = torch.nn.Linear(hidden_size, hidden_size)
-        self.dropout = hidden_dropout_prob
-        self.out_proj = torch.nn.Linear(hidden_size, num_labels)
-
-    # noinspection PyUnusedLocal
-    def forward(self, hidden_states, **kwargs):
-        hidden_states = hidden_states[:, 0, :]  # take <s> token (equiv. to [CLS])
-        hidden_states = self.dropout(hidden_states)
-        hidden_states = self.dense(hidden_states)
-        hidden_states = torch.tanh(hidden_states)
-        hidden_states = self.dropout(hidden_states)
-        output = self.out_proj(hidden_states)
-        return output
 
 
 class ModuleFactory:
