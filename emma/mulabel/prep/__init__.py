@@ -211,11 +211,20 @@ def prep_corpus_train(arg) -> int:
     l_col = arg.label_col
 
     labels_df = pd.DataFrame()
+    lrp_df = pd.DataFrame()
     data_df = pd.DataFrame()
     for postfix in arg.postfix:
         l_file_name = os.path.join(arg.data_out_dir, f'{arg.collection}_map_labels_{postfix}.csv')
         temp_df = pd.read_csv(l_file_name, encoding='utf-8')
         labels_df = pd.concat([labels_df, temp_df])
+
+        lrp_file_name = os.path.join(arg.data_out_dir, f'{arg.collection}_labels_{postfix}.csv')
+        temp_df = pd.read_csv(lrp_file_name, encoding='utf-8')
+        if ptypes.is_string_dtype(temp_df['kwe_id']):
+            temp_df['kwe_id'] = temp_df['kwe_id'].apply(ast.literal_eval)
+        if ptypes.is_string_dtype(temp_df['kwe']):
+            temp_df['kwe'] = temp_df['kwe'].apply(ast.literal_eval)
+        lrp_df = pd.concat([lrp_df, temp_df])
 
         a_file_name = os.path.join(arg.data_out_dir, f'{arg.collection}_article_{postfix}.csv')
         logger.info(f'Reading file %s', a_file_name)
@@ -262,9 +271,9 @@ def prep_corpus_train(arg) -> int:
     l_file_name = os.path.join(arg.data_in_dir, f'{arg.collection}_map_labels.csv')
     labels_df.to_csv(l_file_name, index=False, encoding='utf-8')
 
-    remove_labels_that_occur = 2
+    keep_labels_that_occur = 2  # more or equal than
     # Filter labels based on the count threshold
-    valid_labels = labels_df[labels_df['count'] >= remove_labels_that_occur]['id']
+    valid_labels = labels_df[labels_df['count'] >= keep_labels_that_occur]['id']
     # Function to filter labels in samples
     valid_labels_l = set(valid_labels.tolist())
     print(f'Valid Labels: {len(valid_labels_l)}')
@@ -282,28 +291,34 @@ def prep_corpus_train(arg) -> int:
     valid_labels.to_csv(l_file_name, index=False, encoding='utf-8')
 
     # Perform an initial stratified split to create train and temp (dev+test) sets
-    X_train, X_temp, y_train, y_temp = train_test_split(
-        data_df['text'], data_df[l_col], test_size=0.2, random_state=2611
+    X_train_id, X_temp_id, X_train_lang, X_temp_lang, X_train, X_temp, y_train, y_temp = train_test_split(
+        data_df['id'], data_df['lang'], data_df['text'], data_df[l_col], test_size=0.2, random_state=2611
     )
 
     logger.info('Done with train_test_split 1.')
 
     # Further split the temp set into dev and test sets
-    X_dev, X_test, y_dev, y_test = train_test_split(
-        X_temp, y_temp, test_size=0.5, random_state=2611
+    X_dev_id, X_test_id, X_dev_lang, X_test_lang, X_dev, X_test, y_dev, y_test = train_test_split(
+        X_temp_id, X_temp_lang, X_temp, y_temp, test_size=0.5, random_state=2611
     )
 
     logger.info('Done with train_test_split 2.')
 
     # Convert back to DataFrame for easier manipulation
-    train_df = pd.DataFrame({'text': X_train, 'labels': y_train})
-    dev_df = pd.DataFrame({'text': X_dev, 'labels': y_dev})
-    test_df = pd.DataFrame({'text': X_test, 'labels': y_test})
+    train_df = pd.DataFrame({'id': X_train_id, 'lang':X_train_lang,'text': X_train, 'labels': y_train})
+    dev_df = pd.DataFrame({'id': X_dev_id, 'lang': X_dev_lang, 'text': X_dev, 'labels': y_dev})
+    test_df = pd.DataFrame({'id': X_test_id, 'lang': X_test_lang, 'text': X_test, 'labels': y_test})
+    lrp_train_df = lrp_df[lrp_df['a_id'].isin(train_df['id'])]
+    lrp_dev_df = lrp_df[lrp_df['a_id'].isin(dev_df['id'])]
+    lrp_test_df = lrp_df[lrp_df['a_id'].isin(test_df['id'])]
 
     # Save the splits to CSV files
     train_df.to_csv(f'{arg.collection}_filtered_article_train.csv', index=False)
+    lrp_train_df.to_csv(f'{arg.collection}_filtered_lrp_train.csv', index=False)
     dev_df.to_csv(f'{arg.collection}_filtered_article_dev.csv', index=False)
+    lrp_dev_df.to_csv(f'{arg.collection}_filtered_lrp_dev.csv', index=False)
     test_df.to_csv(f'{arg.collection}_filtered_article_test.csv', index=False)
+    lrp_test_df.to_csv(f'{arg.collection}_filtered_lrp_test.csv', index=False)
     return 0
 
 
