@@ -432,16 +432,17 @@ def db_test_bge_m3(arg) -> int:
                     )
                     print('===================================================================')
                     y_true.append(labeler.vectorize([article['labels']])[0])
+                    print(f'[{article["labels"]}]')
                     if len(response.objects) == 0:
                         y_pred.append(labeler.vectorize([[]])[0])
                     else:
                         for o in response.objects:
                             print(f'[{o.properties["labels"]}|a:{o.properties["a_id"]}]: '
-                                  f'{o.metadata.distance} [{o.properties["text"][:100]}]')
+                                  f'{o.metadata.distance} [{o.properties["text"][:-1]}]')
                             y_pred.append(labeler.vectorize([o.properties["labels"]])[0])
                             break
-            #if idx > 10:
-                #break
+            if idx > 10:
+                break
 
     finally:
         client.close()
