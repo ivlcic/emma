@@ -163,6 +163,8 @@ def llm_simple_self_attn(args) -> int:
 
     # In practice, it's more common and advisable to use the softmax function for normalization.
     # This approach is better at managing extreme values and offers more favorable gradient properties during training.
+    # It ensures that the attention weights are always positive which makes the output interpretable as probabilities
+    # or relative importance, where higher weights indicate greater importance.
     def softmax_naive(x):
         return torch.exp(x) / torch.exp(x).sum(dim=0)
 
