@@ -111,7 +111,7 @@ class MaskedAttentionV2(SelfAttentionV2):
         context_length = attn_scores.shape[0]
         mask = torch.triu(torch.ones(context_length, context_length), diagonal=1)
 
-        # The softmax function converts its inputs into a probability distribution.
+        # Use softmax for Re-normalization. The softmax function converts its inputs into a probability distribution.
         # When negative infinity values (-∞) are present in a row, the softmax function treats them as zero
         masked = attn_scores.masked_fill(mask.bool(), -torch.inf)
         attn_weights = torch.softmax(masked / keys.shape[-1]**0.5, dim=1)
