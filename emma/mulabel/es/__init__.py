@@ -1,7 +1,6 @@
 import ast
 import os
 import logging
-import weaviate
 import pandas as pd
 import pandas.api.types as ptypes
 
@@ -17,7 +16,7 @@ from ..tokenizer import get_segmenter
 from ..utils import __supported_languages, compute_arg_collection_name
 from ...core.args import CommonArguments
 
-logger = logging.getLogger('mulabel.utils')
+logger = logging.getLogger('mulabel.es')
 
 CLIENT_URL = "http://localhost:9266/"
 
@@ -136,31 +135,41 @@ def es_pump(arg) -> int:
         if not client.indices.exists(index=arg.collection):
             logger.warning('Collection [%s] does not exist.', arg.collection)
             return 1
-        #coll = client.indices.get(arg.collection)
+
         stored = set()
         for lrp_dict in lrp_dicts:
             record_uuid = generate_uuid5(lrp_dict)
             if record_uuid in stored:
                 continue
 
+            # this is a for the lrp case
+            if lpr:
+                if 'kwe_id' in lrp_dict:
+                    lrp_kwes = []
+                    for i, kwe_id in lrp_dict['kwe_id']:
+                        lrp_kwe = {'id': kwe_id, 'value': lrp_dict['kwe'][i]}
+                        lrp_kwes.append(lrp_kwe)
+                    del lrp_dict['kwe_id']
+                    lrp_dict['kwe'] = lrp_kwes
+                if 'label_id' in lrp_dict:
+                    lrp_kwes = []
+                    for i, kwe_id in lrp_dict['label_id']:
+                        lrp_kwe = {'id': kwe_id, 'title': lrp_dict['label'][i]}
+                        lrp_kwes.append(lrp_kwe)
+                    del lrp_dict['label_id']
+                    lrp_dict['label'] = lrp_kwes
+
             logger.info('Processing label [%s]', lrp_dict)
-            vectors = {}
             for model_name, model in models.items():
                 if lpr:
-                    vectors['m_' + model_name] = model(lrp_dict['passage'])
+                    lrp_dict['m_' + model_name] = model(lrp_dict['passage'])[0].tolist()
                 else:
-                    vectors['m_' + model_name] = model(lrp_dict['text'])
-
+                    lrp_dict['m_' + model_name] = model(lrp_dict['text'])[0].tolist()
             client.index(
                 index=arg.collection,
                 id=record_uuid,
                 document=lrp_dict,
             )
-            #coll.data.insert(
-            #    uuid=record_uuid,
-            #    properties=lrp_dict,
-            #    vector=vectors
-            #)
             stored.add(record_uuid)
     finally:
         client.close()
