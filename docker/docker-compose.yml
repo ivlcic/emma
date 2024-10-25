@@ -1,0 +1,43 @@
+name: emma
+services:
+  es:
+    build: elasticsearch
+    container_name: emma_es
+    environment:
+      - node.name=emma_es
+      - cluster.name=emma-cluster
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - xpack.security.enabled=false
+      - http.cors.enabled=true
+      - http.cors.allow-origin="*"
+      - "ES_JAVA_OPTS=-Xms512m -Xmx1g"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "9266:9200"
+      - "9366:9300"
+    volumes:
+      - ./elasticsearch/data:/usr/bin/elasticsearch
+    networks:
+      - netzwerk
+
+  es_ui:
+    image: cars10/elasticvue
+    container_name: emma_es_ui
+    environment:
+      - 'ELASTICVUE_CLUSTERS=[{"name": "Emma Cluster", "uri": "http://localhost:9266"}]'
+    ports:
+      - 8066:8080
+    networks:
+      - netzwerk
+
+volumes:
+  es_data:
+    driver: local
+
+networks:
+  netzwerk:
+    driver: bridge

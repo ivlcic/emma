@@ -6,6 +6,7 @@ MODULE_DESCRIPTOR = ModuleDescriptor(
     'Multilabel classification module',
     ModuleArguments([
         CommandArguments('db', 'Vector database tasks.', multi_action=True),
+        CommandArguments('es', 'Elasticsearch database tasks.', multi_action=True),
         CommandArguments('prep', 'Prepares the data', multi_action=True),
         #CommandArguments('split', 'Splits the data'),
         #CommandArguments('train', 'Trains the model'),

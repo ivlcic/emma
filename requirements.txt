@@ -22,3 +22,4 @@ reldi-tokeniser>=1.0.3
 obeliks>=1.1.6
 stanza>=1.8.2
 tiktoken>=0.7.0
+elasticsearch>=8.15.1
