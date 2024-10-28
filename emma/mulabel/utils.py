@@ -145,11 +145,12 @@ def construct_span_contexts(article: Dict[str, Any], tokenize: Callable[[str], A
             db_labels.append(db_label)
             continue
 
+        # init each label to sentences index mapping
         if tag['id'] not in label_ids_sent_idx:
             label_ids_sent_idx[tag['id']] = {'s_idx': [], 'kwe': [], 'kwe_id': [], 'title': ''}
 
         prev_segment_offset = 0
-        for segment_name in segment_names:
+        for segment_name in segment_names:  # title, body
             sentences = segment_spans[segment_name]['sentences']
             for span in tag[segment_name]:
                 # single sentence passage matching keyword expression (1 label <-> N kwe)

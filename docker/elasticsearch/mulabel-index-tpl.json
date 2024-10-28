@@ -1,6 +1,6 @@
 {
   "index_patterns": [
-    "complete*"
+    "mulabel*"
   ],
   "priority": 10,
   "template" : {

@@ -2,8 +2,8 @@ FROM docker.elastic.co/elasticsearch/elasticsearch:8.15.3
 
 USER 0:0
 
-COPY lrp-index-tpl.json /lrp-index-tpl.json
-COPY complete-index-tpl.json /complete-index-tpl.json
+COPY lrp_mulabel-index-tpl.json /lrp_mulabel-index-tpl.json
+COPY mulabel-index-tpl.json /mulabel-index-tpl.json
 
 COPY init-index.sh /init-index.sh
 COPY init-script.sh /init-script.sh

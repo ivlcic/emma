@@ -5,13 +5,12 @@ import pandas as pd
 import pandas.api.types as ptypes
 
 from argparse import ArgumentParser
-from typing import Callable, Dict, Any
+from typing import Callable, Dict, Any, List
 
 from elasticsearch import Elasticsearch
 from weaviate.util import generate_uuid5
 from FlagEmbedding import BGEM3FlagModel
 
-from ...core.labels import MultilabelLabeler
 from ..tokenizer import get_segmenter
 from ..utils import __supported_languages, compute_arg_collection_name
 from ...core.args import CommonArguments
@@ -24,6 +23,7 @@ CLIENT_URL = "http://localhost:9266/"
 def add_args(module_name: str, parser: ArgumentParser) -> None:
     CommonArguments.split_data_dir(module_name, parser, ('-i', '--data_in_dir'))
     CommonArguments.raw_data_dir(module_name, parser, ('-o', '--data_out_dir'))
+    CommonArguments.tmp_dir(module_name, parser, ('-t', '--tmp_dir'))
     parser.add_argument(
         '-c', '--collection', help='Collection to manage.', type=str,
     )
@@ -49,9 +49,9 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
 
 def es_init(arg) -> int:
     """
-    ./mulabel db init -c lrp
-    ./mulabel db init -c lrp -l sl
-    ./mulabel db init -c lrp -l sl,sr
+    ./mulabel db init -c lrp_mulabel
+    ./mulabel db init -c lrp_mulabel -l sl
+    ./mulabel db init -c lrp_mulabel -l sl,sr
     """
     compute_arg_collection_name(arg)
     client = Elasticsearch(CLIENT_URL)
@@ -70,8 +70,8 @@ def es_init(arg) -> int:
 
 def es_drop(arg) -> int:
     """
-    ./mulabel es drop -c lrp
-    ./mulabel es drop -c lrp -l sl,sr
+    ./mulabel es drop -c lrp_mulabel
+    ./mulabel es drop -c lrp_mulabel -l sl,sr
     """
     compute_arg_collection_name(arg)
     client = Elasticsearch(CLIENT_URL)
@@ -86,20 +86,63 @@ def es_drop(arg) -> int:
     return 0
 
 
+def _load_data(arg, lrp: bool) -> List[Dict[str, Any]]:
+    if lrp:
+        data_file_name = os.path.join(arg.data_in_dir, f'{arg.collection}_filtered_lrp_train.csv')
+        data_frame = pd.read_csv(data_file_name)
+        if ptypes.is_string_dtype(data_frame['kwe_id']):
+            data_frame['kwe_id'] = data_frame['kwe_id'].apply(ast.literal_eval)
+        if ptypes.is_string_dtype(data_frame['kwe']):
+            data_frame['kwe'] = data_frame['kwe'].apply(ast.literal_eval)
+        data_as_dicts = data_frame.to_dict(orient='records')
+    else:
+        data_file_name = os.path.join(arg.data_in_dir, f'{arg.collection}_filtered_article_train.csv')
+        data_frame = pd.read_csv(data_file_name)
+        data_frame.rename(columns={'id': 'a_id'}, inplace=True)
+        if ptypes.is_string_dtype(data_frame['labels']):
+            data_frame['labels'] = data_frame['labels'].apply(ast.literal_eval)
+        data_as_dicts = data_frame.to_dict(orient='records')
+    return data_as_dicts
+
+
+def _restruct(lrp, data_item) -> None:
+    if not lrp:
+        data_item['id'] = data_item['a_uuid']
+        return
+    data_item['id'] = data_item['uuid']
+    # this is a for the lrp case
+    if 'kwe_id' in data_item:
+        lrp_kwes = []
+        for i, kwe_id in data_item['kwe_id']:
+            lrp_kwe = {'id': kwe_id, 'value': data_item['kwe'][i]}
+            lrp_kwes.append(lrp_kwe)
+        del data_item['kwe_id']
+        data_item['kwe'] = lrp_kwes
+    if 'label_id' in data_item:
+        lrp_kwes = []
+        for i, kwe_id in data_item['label_id']:
+            lrp_kwe = {'id': kwe_id, 'title': data_item['label'][i]}
+            lrp_kwes.append(lrp_kwe)
+        del data_item['label_id']
+        data_item['label'] = lrp_kwes
+
+
 def es_pump(arg) -> int:
     """
-    ./mulabel es pump -c lrp
-    ./mulabel es pump -c lrp -l sl,sr
+    ./mulabel es pump -c lrp_mulabel
+    ./mulabel es pump -c lrp_mulabel -l sl,sr
 
-    ./mulabel es drop -c lrp -l sl --public
-    ./mulabel es init -c lrp -l sl --public
-    ./mulabel es pump -c lrp -l sl --public
-    ./mulabel es pump -c complete -l sl --public
+    ./mulabel es drop -c lrp_mulabel -l sl --public
+    ./mulabel es init -c lrp_mulabel -l sl --public
+    ./mulabel es pump -c lrp_mulabel -l sl --public
 
-    ./mulabel es pump -c lrp -l sl --public --seed_only
+    ./mulabel es pump -c mulabel -l sl --public
+
+    ./mulabel es pump -c mulabel -l sl --public --seed_only
     """
-    lpr = 'lrp' in arg.collection
+    os.environ['HF_HOME'] = arg.tmp_dir  # local tmp dir
 
+    lrp = 'lrp' in arg.collection
     compute_arg_collection_name(arg)
     tokenizers = {}
     for lang in arg.lang:
@@ -114,22 +157,7 @@ def es_pump(arg) -> int:
         'bge_m3': bge_m3_embed
     }
 
-    if lpr:
-        lrp_file_name = os.path.join(arg.data_in_dir, f'{arg.collection}_filtered_lrp_train.csv')
-        lrp_df = pd.read_csv(lrp_file_name)
-        if ptypes.is_string_dtype(lrp_df['kwe_id']):
-            lrp_df['kwe_id'] = lrp_df['kwe_id'].apply(ast.literal_eval)
-        if ptypes.is_string_dtype(lrp_df['kwe']):
-            lrp_df['kwe'] = lrp_df['kwe'].apply(ast.literal_eval)
-        lrp_dicts = lrp_df.to_dict(orient='records')
-    else:
-        lrp_file_name = os.path.join(arg.data_in_dir, f'{arg.collection}_filtered_article_train.csv')
-        lrp_df = pd.read_csv(lrp_file_name)
-        lrp_df.rename(columns={'id': 'a_id'}, inplace=True)
-        if ptypes.is_string_dtype(lrp_df['labels']):
-            lrp_df['labels'] = lrp_df['labels'].apply(ast.literal_eval)
-        lrp_dicts = lrp_df.to_dict(orient='records')
-
+    data_as_dicts = _load_data(arg, lrp)
     client = Elasticsearch(CLIENT_URL)
     try:
         if not client.indices.exists(index=arg.collection):
@@ -137,38 +165,60 @@ def es_pump(arg) -> int:
             return 1
 
         stored = set()
-        for lrp_dict in lrp_dicts:
-            record_uuid = generate_uuid5(lrp_dict)
+        for data_item in data_as_dicts:
+            _restruct(lrp, data_item)
+
+            logger.info('Processing item [%s]', data_item)
+            for model_name, model in models.items():
+                if lrp:
+                    data_item['m_' + model_name] = model(data_item['passage'])[0].tolist()
+                else:
+                    data_item['m_' + model_name] = model(data_item['text'])[0].tolist()
+            client.index(
+                index=arg.collection,
+                id=data_item['id'],
+                document=data_item,
+            )
+            stored.add(data_item['id'])
+    finally:
+        client.close()
+
+    return 0
+
+
+def es_dedup(arg) -> int:
+    """
+    ./mulabel es pump -c mulabel_lrp
+    ./mulabel es pump -c mulabel_lrp -l sl,sr
+
+    ./mulabel es drop -c lrp_mulabel -l sl --public
+    ./mulabel es init -c lrp_mulabel -l sl --public
+    ./mulabel es pump -c lrp_mulabel -l sl --public
+
+    ./mulabel es drop -c mulabel -l sl --public
+    ./mulabel es init -c mulabel -l sl --public
+    ./mulabel es pump -c mulabel -l sl --public
+    ./mulabel es dedup -c mulabel -l sl --public
+    """
+
+    lrp = 'lrp' in arg.collection
+    compute_arg_collection_name(arg)
+
+    data_as_dicts = _load_data(arg, lrp)
+    client = Elasticsearch(CLIENT_URL)
+    try:
+        stored = set()
+        for data_item in data_as_dicts:
+            record_uuid = generate_uuid5(data_item)
             if record_uuid in stored:
                 continue
 
-            # this is a for the lrp case
-            if lpr:
-                if 'kwe_id' in lrp_dict:
-                    lrp_kwes = []
-                    for i, kwe_id in lrp_dict['kwe_id']:
-                        lrp_kwe = {'id': kwe_id, 'value': lrp_dict['kwe'][i]}
-                        lrp_kwes.append(lrp_kwe)
-                    del lrp_dict['kwe_id']
-                    lrp_dict['kwe'] = lrp_kwes
-                if 'label_id' in lrp_dict:
-                    lrp_kwes = []
-                    for i, kwe_id in lrp_dict['label_id']:
-                        lrp_kwe = {'id': kwe_id, 'title': lrp_dict['label'][i]}
-                        lrp_kwes.append(lrp_kwe)
-                    del lrp_dict['label_id']
-                    lrp_dict['label'] = lrp_kwes
+            _restruct(lrp, data_item)
 
-            logger.info('Processing label [%s]', lrp_dict)
-            for model_name, model in models.items():
-                if lpr:
-                    lrp_dict['m_' + model_name] = model(lrp_dict['passage'])[0].tolist()
-                else:
-                    lrp_dict['m_' + model_name] = model(lrp_dict['text'])[0].tolist()
             client.index(
                 index=arg.collection,
                 id=record_uuid,
-                document=lrp_dict,
+                document=data_item,
             )
             stored.add(record_uuid)
     finally:

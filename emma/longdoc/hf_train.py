@@ -135,7 +135,7 @@ def main(args) -> int:
         return prob
 
     log_epochs = []
-    k = round(average_labels_per_sample)
+    avg_k = round(average_labels_per_sample)
 
     def compute_metrics(eval_pred: EvalPrediction):
         y_true = eval_pred.label_ids
@@ -158,8 +158,9 @@ def main(args) -> int:
         metric['accuracy'] = accuracy_score(y_true, y_pred)
         metric['m_name'] = output_model_name
         if labeler.get_type_code() == 'multilabel':
-            metric[f'r-precision@{k}'], _ = r_precision_at_k(y_true, y_prob, k=k)
-            metric[f'ndcg@{k}'] = ndcg_score(y_true, y_prob, k=k)
+            for k in range(1, 10, 2):
+                metric[f'r-precision@{k}'], _ = r_precision_at_k(y_true, y_prob, k=k)
+                metric[f'ndcg@{k}'] = ndcg_score(y_true, y_prob, k=k)
             metric[f'ndcg'] = ndcg_score(y_true, y_prob)
             metric['hamming_loss'] = hamming_loss(y_true, y_pred)
 

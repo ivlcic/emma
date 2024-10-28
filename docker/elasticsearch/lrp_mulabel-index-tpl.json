@@ -1,6 +1,6 @@
 {
   "index_patterns": [
-    "lrp*"
+    "lrp_mulabel*"
   ],
   "priority": 10,
   "template" : {

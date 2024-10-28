@@ -71,6 +71,7 @@ def prep_corpus_extract(arg) -> int:
     ./mulabel prep corpus_extract -c Label -l sl,sr --public --seed_only --postfix 2023_01
     """
     logger.debug("Starting extracting data to simplify format.")
+    os.environ['HF_HOME'] = arg.data_out_dir  # local tmp dir
 
     compute_arg_collection_name(arg)
     label_cols = ['name', 'count', 'parent_id', 'monitoring_country', 'monitoring_industry']
@@ -109,8 +110,8 @@ def prep_corpus_extract(arg) -> int:
         with open(file_name, 'r', encoding='utf8') as json_file:
             json_data = json.load(json_file)
 
-        a_file_name = os.path.join(arg.data_out_dir, f'{arg.collection}_article_{postfix}.csv')
-        l_file_name = os.path.join(arg.data_out_dir, f'{arg.collection}_labels_{postfix}.csv')
+        a_file_name = os.path.join(arg.data_out_dir, f'{arg.collection}_{postfix}.csv')
+        l_file_name = os.path.join(arg.data_out_dir, f'lrp_{arg.collection}_{postfix}.csv')
         with open(l_file_name, 'w', encoding='utf8') as l_file, \
                 open(a_file_name, 'w', encoding='utf8') as a_file:
             a_writer = csv.writer(a_file)
@@ -153,6 +154,7 @@ def prep_corpus_extract(arg) -> int:
                 a_writer.writerow(
                     [
                         article['id'],
+                        article['uuid'],
                         article['date'],
                         article['m_id'],
                         article['public'],
@@ -173,7 +175,8 @@ def prep_corpus_extract(arg) -> int:
                         tokens = tokenizer.tokenize(db_label['passage'])
                         db_label['n_tokens'] = len(tokens)
 
-                    logger.info('Processing label [%s]', db_label)
+                    if article_idx % 1000 == 0:
+                        logger.info('Processing label [%s]', db_label)
 
                     if not l_header_written:
                         l_writer.writerow(db_label.keys())
@@ -186,7 +189,7 @@ def prep_corpus_extract(arg) -> int:
 
         write_map_file(
             maps['trained_labels'],
-            os.path.join(arg.data_out_dir, f'{arg.collection}_map_labels_{postfix}.csv'),
+            os.path.join(arg.data_out_dir, f'{arg.collection}_{postfix}_map_labels.csv'),
             label_cols
         )
     return 0
@@ -200,7 +203,7 @@ def prep_corpus_train(arg) -> int:
     ./mulabel prep corpus_train -l sl,sr --public --seed_only --postfix 2023_01,2023_02,2023_03,2023_04,2023_05
     """
     logger.debug("Starting preparing data for training to simplify format.")
-
+    os.environ['HF_HOME'] = arg.data_out_dir  # local tmp dir
     compute_arg_collection_name(arg)
 
     if ',' in arg.postfix:
@@ -214,11 +217,11 @@ def prep_corpus_train(arg) -> int:
     lrp_df = pd.DataFrame()
     data_df = pd.DataFrame()
     for postfix in arg.postfix:
-        l_file_name = os.path.join(arg.data_out_dir, f'{arg.collection}_map_labels_{postfix}.csv')
+        l_file_name = os.path.join(arg.data_out_dir, f'{arg.collection}_{postfix}_map_labels.csv')
         temp_df = pd.read_csv(l_file_name, encoding='utf-8')
         labels_df = pd.concat([labels_df, temp_df])
 
-        lrp_file_name = os.path.join(arg.data_out_dir, f'{arg.collection}_labels_{postfix}.csv')
+        lrp_file_name = os.path.join(arg.data_out_dir, f'lrp_{arg.collection}_{postfix}.csv')
         temp_df = pd.read_csv(lrp_file_name, encoding='utf-8')
         if ptypes.is_string_dtype(temp_df['kwe_id']):
             temp_df['kwe_id'] = temp_df['kwe_id'].apply(ast.literal_eval)
@@ -226,7 +229,7 @@ def prep_corpus_train(arg) -> int:
             temp_df['kwe'] = temp_df['kwe'].apply(ast.literal_eval)
         lrp_df = pd.concat([lrp_df, temp_df])
 
-        a_file_name = os.path.join(arg.data_out_dir, f'{arg.collection}_article_{postfix}.csv')
+        a_file_name = os.path.join(arg.data_out_dir, f'{arg.collection}_{postfix}.csv')
         logger.info(f'Reading file %s', a_file_name)
         temp_df = pd.read_csv(a_file_name, encoding='utf-8')
         if ptypes.is_string_dtype(temp_df[l_col]):
@@ -240,7 +243,7 @@ def prep_corpus_train(arg) -> int:
         data_df['lang'] = 'sl'
     logger.info('Article samples:')
     print(data_df.head())
-    a_file_name = os.path.join(arg.data_in_dir, f'{arg.collection}_article.csv')
+    a_file_name = os.path.join(arg.data_in_dir, f'{arg.collection}.csv')
     data_df.to_csv(a_file_name, index=False, encoding='utf-8')
 
     # recount labels because original labels were off
@@ -284,7 +287,7 @@ def prep_corpus_train(arg) -> int:
     # Remove samples with no labels
     data_df = data_df[data_df[l_col].map(len) > 0]
 
-    a_file_name = os.path.join(arg.data_in_dir, f'{arg.collection}_filtered_article.csv')
+    a_file_name = os.path.join(arg.data_in_dir, f'{arg.collection}_filtered.csv')
     data_df.to_csv(a_file_name, index=False, encoding='utf-8')
 
     l_file_name = os.path.join(arg.data_in_dir, f'{arg.collection}_filtered_map_labels.csv')
@@ -313,12 +316,12 @@ def prep_corpus_train(arg) -> int:
     lrp_test_df = lrp_df[lrp_df['a_id'].isin(test_df['id'])]
 
     # Save the splits to CSV files
-    train_df.to_csv(f'{arg.collection}_filtered_article_train.csv', index=False)
-    lrp_train_df.to_csv(f'{arg.collection}_filtered_lrp_train.csv', index=False)
-    dev_df.to_csv(f'{arg.collection}_filtered_article_dev.csv', index=False)
-    lrp_dev_df.to_csv(f'{arg.collection}_filtered_lrp_dev.csv', index=False)
-    test_df.to_csv(f'{arg.collection}_filtered_article_test.csv', index=False)
-    lrp_test_df.to_csv(f'{arg.collection}_filtered_lrp_test.csv', index=False)
+    train_df.to_csv(f'{arg.collection}_filtered_train.csv', index=False)
+    lrp_train_df.to_csv(f'lrp_{arg.collection}_filtered_train.csv', index=False)
+    dev_df.to_csv(f'{arg.collection}_filtered_dev.csv', index=False)
+    lrp_dev_df.to_csv(f'lrp_{arg.collection}_filtered_dev.csv', index=False)
+    test_df.to_csv(f'{arg.collection}_filtered_test.csv', index=False)
+    lrp_test_df.to_csv(f'lrp_{arg.collection}_filtered_test.csv', index=False)
     return 0
 
 
