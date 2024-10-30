@@ -31,6 +31,8 @@ def compute_arg_collection_name(arg):
         arg.collection = arg.collection + '_p' + ('1' if arg.public else '0')
     if 'seed_only' in arg:
         arg.collection = arg.collection + '_s' + ('1' if arg.seed_only else '0')
+    if 'suffix' in arg and arg.suffix:
+        arg.collection = arg.collection + '_' + arg.suffix
 
 
 def load_map_file(file_name: str, cols: List[str]) -> Dict[str, Dict[str, Any]]:
