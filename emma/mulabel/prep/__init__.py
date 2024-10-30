@@ -4,6 +4,7 @@ import os
 import json
 import csv
 import logging
+import uuid as uuid_lib
 import numpy as np
 import pandas as pd
 import pandas.api.types as ptypes
@@ -16,22 +17,22 @@ from collections import Counter
 from sklearn.model_selection import train_test_split
 from transformers import AutoTokenizer
 from sklearn.preprocessing import MultiLabelBinarizer
-from weaviate.util import generate_uuid5
 
 from ..tokenizer import get_segmenter
 from ..utils import compute_arg_collection_name, load_map_file, construct_span_contexts, write_map_file, \
-    __supported_languages
+    load_add_corpus_part, __supported_languages
 from ...core.args import CommonArguments
 
 logger = logging.getLogger('mulabel.prep')
 
-__label_columns = ['labels', 'tags', 'ml_label', 'mc_label', 'topics']
+__label_columns = ['label', 'tags', 'ml_label', 'mc_label', 'topics']
 
 
 # noinspection DuplicatedCode
 def add_args(module_name: str, parser: ArgumentParser) -> None:
     CommonArguments.raw_data_dir(module_name, parser, ('-o', '--data_in_dir'))
     CommonArguments.tmp_dir(module_name, parser, ('-i', '--data_out_dir'))
+    CommonArguments.split_data_dir(module_name, parser, ('-s', '--data_split_dir'))
     parser.add_argument(
         '-c', '--collection', help='Collection to manage.', type=str, default='mulabel'
     )
@@ -45,7 +46,7 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
         '--label_col',
         help=f'Use label column.'
              f'You can use a comma separated list of {__label_columns}',
-        type=str, choices=__label_columns, default='labels'
+        type=str, choices=__label_columns, default='label'
     )
     parser.add_argument(
         '--public', help='Use only publicly available data.',
@@ -66,6 +67,8 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
 def prep_corpus_extract(arg) -> int:
     """
     Extracts and preprocesses corpus data (aligns labels, finds relevant parts, filters data etc...).
+    Produces two files tmp/mulabel/collection_name.csv and tmp/mulabel/lrp_collection_name.csv.
+    The second file has label relevant passages while the first one has the complete texts.
     ./mulabel prep corpus_extract -l sl --public --seed_only --postfix 2023_01
     ./mulabel prep corpus_extract -c Label -l sl --public --seed_only --postfix 2023_01
     ./mulabel prep corpus_extract -c Label -l sl,sr --public --seed_only --postfix 2023_01
@@ -77,13 +80,13 @@ def prep_corpus_extract(arg) -> int:
     label_cols = ['name', 'count', 'parent_id', 'monitoring_country', 'monitoring_industry']
     maps = {
         'kwes': load_map_file(
-            os.path.join(arg.data_in_dir, 'map_kwe_tags.csv'), ['tag_id', 'expr']
+            os.path.join(arg.data_in_dir, 'map', 'map_kwe_tags.csv'), ['tag_id', 'expr']
         ),
         'labels': load_map_file(
-            os.path.join(arg.data_in_dir, 'map_tags.csv'), label_cols
+            os.path.join(arg.data_in_dir, 'map', 'map_tags.csv'), label_cols
         ),
         'seed_labels': load_map_file(
-            os.path.join(arg.data_in_dir, 'map_seed_tags.csv'), label_cols
+            os.path.join(arg.data_in_dir, 'map', 'map_seed_tags.csv'), label_cols
         ),
         'trained_labels': {}
     }
@@ -99,14 +102,14 @@ def prep_corpus_extract(arg) -> int:
         arg.postfix = [arg.postfix]
 
     for postfix in arg.postfix:
-        article_map_file_name = os.path.join(arg.data_in_dir, f'map_articles_{postfix}.csv')
+        article_map_file_name = os.path.join(arg.data_in_dir, 'map', f'map_articles_{postfix}.csv')
         article_cols = [
             'uuid', 'public', 'created', 'published', 'country', 'mon_country', 'lang', 'script', 'm_id',
             'rel_path', 'url', 'sent', 'words', 'sp_tokens', 'tags_count', 'tags'
         ]
         map_articles = load_map_file(article_map_file_name, article_cols)
 
-        file_name = os.path.join(arg.data_in_dir, f'data_{postfix}.jsonl')
+        file_name = os.path.join(arg.data_in_dir, 'src', f'data_{postfix}.jsonl')
         with open(file_name, 'r', encoding='utf8') as json_file:
             json_data = json.load(json_file)
 
@@ -115,7 +118,9 @@ def prep_corpus_extract(arg) -> int:
         with open(l_file_name, 'w', encoding='utf8') as l_file, \
                 open(a_file_name, 'w', encoding='utf8') as a_file:
             a_writer = csv.writer(a_file)
-            a_writer.writerow(['id', 'date', 'm_id', 'public', 'lang', 'n_tokens', 'text', 'labels'])
+            a_writer.writerow(
+                ['a_id', 'a_uuid', 'date', 'm_id', 'public', 'lang', 'n_tokens', 'text', 'label', 'label_info']
+            )
             l_writer = csv.writer(l_file)
             l_header_written = False
             stored = set()
@@ -137,9 +142,13 @@ def prep_corpus_extract(arg) -> int:
                     logger.warning('Missing [%s] tokenizer', article['lang'])
                     continue
 
-                tag_ids = []
+                labels = []
+                label_ids = []
                 for tag in article['tags']:
-                    tag_ids.append(tag['id'])
+                    labels.append(
+                        {'id': tag['id'], 'name': maps['labels'][tag['id']]['name']}
+                    )
+                    label_ids.append(tag['id'])
                     if not tag['id'] in maps['trained_labels']:
                         maps['trained_labels'][tag['id']] = maps['labels'][tag['id']]
 
@@ -161,18 +170,19 @@ def prep_corpus_extract(arg) -> int:
                         article['lang'],
                         n_tokens,
                         text,
-                        tag_ids,
+                        label_ids,
+                        labels,
                     ]
                 )
 
                 for db_label in db_labels:
-                    db_label['uuid'] = generate_uuid5(db_label)
+                    db_label['uuid'] = str(uuid_lib.uuid5(uuid_lib.NAMESPACE_DNS, str(db_label)))
                     if db_label['uuid'] in stored:
                         continue
 
                     db_label['n_tokens'] = 0
                     if text:
-                        tokens = tokenizer.tokenize(db_label['passage'])
+                        tokens = tokenizer.tokenize(db_label['text'])
                         db_label['n_tokens'] = len(tokens)
 
                     if article_idx % 1000 == 0:
@@ -195,12 +205,12 @@ def prep_corpus_extract(arg) -> int:
     return 0
 
 
-def prep_corpus_train(arg) -> int:
+def prep_corpus_merge(arg) -> int:
     """
     Preps training data. Selects part of a corpus based on a postfix(es) and makes train/eval/test split.
-    ./mulabel prep corpus_train -l sl --public --postfix 2023_01,2023_02,2023_03,2023_04,2023_05
-    ./mulabel prep corpus_train -l sl --public --seed_only --postfix 2023_01,2023_02,2023_03,2023_04,2023_05
-    ./mulabel prep corpus_train -l sl,sr --public --seed_only --postfix 2023_01,2023_02,2023_03,2023_04,2023_05
+    ./mulabel prep corpus_merge -l sl --public --postfix 2023_01,2023_02,2023_03,2023_04,2023_05
+    ./mulabel prep corpus_merge -l sl --public --seed_only --postfix 2023_01,2023_02,2023_03,2023_04,2023_05
+    ./mulabel prep corpus_merge -l sl,sr --public --seed_only --postfix 2023_01,2023_02,2023_03,2023_04,2023_05
     """
     logger.debug("Starting preparing data for training to simplify format.")
     os.environ['HF_HOME'] = arg.data_out_dir  # local tmp dir
@@ -222,29 +232,12 @@ def prep_corpus_train(arg) -> int:
         labels_df = pd.concat([labels_df, temp_df])
 
         lrp_file_name = os.path.join(arg.data_out_dir, f'lrp_{arg.collection}_{postfix}.csv')
-        temp_df = pd.read_csv(lrp_file_name, encoding='utf-8')
-        if ptypes.is_string_dtype(temp_df['kwe_id']):
-            temp_df['kwe_id'] = temp_df['kwe_id'].apply(ast.literal_eval)
-        if ptypes.is_string_dtype(temp_df['kwe']):
-            temp_df['kwe'] = temp_df['kwe'].apply(ast.literal_eval)
-        lrp_df = pd.concat([lrp_df, temp_df])
+        lrp_df = load_add_corpus_part(lrp_file_name, l_col, lrp_df)
 
         a_file_name = os.path.join(arg.data_out_dir, f'{arg.collection}_{postfix}.csv')
-        logger.info(f'Reading file %s', a_file_name)
-        temp_df = pd.read_csv(a_file_name, encoding='utf-8')
-        if ptypes.is_string_dtype(temp_df[l_col]):
-            temp_df[l_col] = temp_df[l_col].apply(ast.literal_eval)
-        elif ptypes.is_integer_dtype(temp_df[l_col]):
-            temp_df[l_col] = temp_df[l_col].apply(lambda x: [x])
-        data_df = pd.concat([data_df, temp_df])
+        data_df = load_add_corpus_part(a_file_name, l_col, data_df)
 
-    # temp solution:
-    if 'lang' not in data_df:
-        data_df['lang'] = 'sl'
-    logger.info('Article samples:')
     print(data_df.head())
-    a_file_name = os.path.join(arg.data_in_dir, f'{arg.collection}.csv')
-    data_df.to_csv(a_file_name, index=False, encoding='utf-8')
 
     # recount labels because original labels were off
     labels_df = labels_df.drop_duplicates(subset='id')
@@ -271,8 +264,6 @@ def prep_corpus_train(arg) -> int:
     labels_df = labels_df.sort_values(by='count', ascending=False)
     logger.info('Counted Label Sample 2:')
     print(labels_df.head())
-    l_file_name = os.path.join(arg.data_in_dir, f'{arg.collection}_map_labels.csv')
-    labels_df.to_csv(l_file_name, index=False, encoding='utf-8')
 
     keep_labels_that_occur = 2  # more or equal than
     # Filter labels based on the count threshold
@@ -287,11 +278,22 @@ def prep_corpus_train(arg) -> int:
     # Remove samples with no labels
     data_df = data_df[data_df[l_col].map(len) > 0]
 
-    a_file_name = os.path.join(arg.data_in_dir, f'{arg.collection}_filtered.csv')
-    data_df.to_csv(a_file_name, index=False, encoding='utf-8')
+    labels_df = labels_df[labels_df['id'].isin(valid_labels)]
+    lrp_df = lrp_df[lrp_df['a_id'].isin(data_df['a_id'])]
 
-    l_file_name = os.path.join(arg.data_in_dir, f'{arg.collection}_filtered_map_labels.csv')
-    valid_labels.to_csv(l_file_name, index=False, encoding='utf-8')
+    # write to disk
+    data_df.to_csv(os.path.join(arg.data_in_dir, f'{arg.collection}.csv'), index=False, encoding='utf-8')
+    labels_df.to_csv(os.path.join(arg.data_in_dir, f'{arg.collection}_map_labels.csv'), index=False, encoding='utf-8')
+    lrp_df.to_csv(os.path.join(arg.data_in_dir, f'lrp_{arg.collection}.csv'), index=False)
+
+
+def prep_corpus_split(arg) -> int:
+    l_col = arg.label_col
+    a_file_name = os.path.join(arg.data_in_dir, f'{arg.collection}.csv')
+    data_df = pd.read_csv(a_file_name, encoding='utf-8')
+
+    lrp_file_name = os.path.join(arg.data_in_dir, f'lrp_{arg.collection}.csv')
+    lrp_df = pd.read_csv(lrp_file_name, encoding='utf-8')
 
     # Perform an initial stratified split to create train and temp (dev+test) sets
     X_train_id, X_temp_id, X_train_lang, X_temp_lang, X_train, X_temp, y_train, y_temp = train_test_split(
@@ -316,12 +318,12 @@ def prep_corpus_train(arg) -> int:
     lrp_test_df = lrp_df[lrp_df['a_id'].isin(test_df['id'])]
 
     # Save the splits to CSV files
-    train_df.to_csv(f'{arg.collection}_filtered_train.csv', index=False)
-    lrp_train_df.to_csv(f'lrp_{arg.collection}_filtered_train.csv', index=False)
-    dev_df.to_csv(f'{arg.collection}_filtered_dev.csv', index=False)
-    lrp_dev_df.to_csv(f'lrp_{arg.collection}_filtered_dev.csv', index=False)
-    test_df.to_csv(f'{arg.collection}_filtered_test.csv', index=False)
-    lrp_test_df.to_csv(f'lrp_{arg.collection}_filtered_test.csv', index=False)
+    train_df.to_csv(os.path.join(arg.data_split_dir, f'{arg.collection}_train.csv'), index=False)
+    lrp_train_df.to_csv(os.path.join(arg.data_split_dir, f'lrp_{arg.collection}_train.csv'), index=False)
+    dev_df.to_csv(os.path.join(arg.data_split_dir, f'{arg.collection}_dev.csv'), index=False)
+    lrp_dev_df.to_csv(os.path.join(arg.data_split_dir, f'lrp_{arg.collection}_dev.csv'), index=False)
+    test_df.to_csv(os.path.join(arg.data_split_dir, f'{arg.collection}_test.csv'), index=False)
+    lrp_test_df.to_csv(os.path.join(arg.data_split_dir, f'lrp_{arg.collection}_test.csv'), index=False)
     return 0
 
 

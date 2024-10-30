@@ -11,27 +11,30 @@
     "mappings": {
       "_source": { "enabled": true },
       "properties": {
+        "uuid": { "type": "keyword"},
         "a_uuid": { "type": "keyword"},
         "a_id": {"type": "keyword"},
         "country": {"type": "keyword"},
         "lang": {"type": "keyword"},
         "m_id": {"type": "keyword"},
-        "label": {
+        "label_info": {
           "type": "nested",
           "properties": {
             "id": {"type": "keyword"},
-            "title": {"type": "text"}
+            "name": {"type": "text"},
+            "kwe": {
+              "type": "nested",
+              "properties": {
+                "id": {"type": "keyword"},
+                "value": {"type": "text"}
+              }
+            }
           }
         },
-        "kwe": {
-          "type": "nested",
-          "properties": {
-            "id": {"type": "keyword"},
-            "value": {"type": "text"}
-          }
-        },
+        "label": {"type": "keyword"},
         "passage_cat": {"type": "long"},
-        "passage": {"type": "text"},
+        "passage_targets": {"type": "long"},
+        "text": {"type": "text"},
         "published": {"type": "date"},
         "created": {"type": "date"},
         "m_bge_m3": {

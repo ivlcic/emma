@@ -12,7 +12,7 @@ from weaviate.util import generate_uuid5
 from FlagEmbedding import BGEM3FlagModel
 
 from ..tokenizer import get_segmenter
-from ..utils import __supported_languages, compute_arg_collection_name
+from ..utils import __supported_languages, compute_arg_collection_name, load_add_corpus_part
 from ...core.args import CommonArguments
 
 logger = logging.getLogger('mulabel.es')
@@ -86,47 +86,6 @@ def es_drop(arg) -> int:
     return 0
 
 
-def _load_data(arg, lrp: bool) -> List[Dict[str, Any]]:
-    if lrp:
-        data_file_name = os.path.join(arg.data_in_dir, f'{arg.collection}_filtered_lrp_train.csv')
-        data_frame = pd.read_csv(data_file_name)
-        if ptypes.is_string_dtype(data_frame['kwe_id']):
-            data_frame['kwe_id'] = data_frame['kwe_id'].apply(ast.literal_eval)
-        if ptypes.is_string_dtype(data_frame['kwe']):
-            data_frame['kwe'] = data_frame['kwe'].apply(ast.literal_eval)
-        data_as_dicts = data_frame.to_dict(orient='records')
-    else:
-        data_file_name = os.path.join(arg.data_in_dir, f'{arg.collection}_filtered_article_train.csv')
-        data_frame = pd.read_csv(data_file_name)
-        data_frame.rename(columns={'id': 'a_id'}, inplace=True)
-        if ptypes.is_string_dtype(data_frame['labels']):
-            data_frame['labels'] = data_frame['labels'].apply(ast.literal_eval)
-        data_as_dicts = data_frame.to_dict(orient='records')
-    return data_as_dicts
-
-
-def _restruct(lrp, data_item) -> None:
-    if not lrp:
-        data_item['id'] = data_item['a_uuid']
-        return
-    data_item['id'] = data_item['uuid']
-    # this is a for the lrp case
-    if 'kwe_id' in data_item:
-        lrp_kwes = []
-        for i, kwe_id in data_item['kwe_id']:
-            lrp_kwe = {'id': kwe_id, 'value': data_item['kwe'][i]}
-            lrp_kwes.append(lrp_kwe)
-        del data_item['kwe_id']
-        data_item['kwe'] = lrp_kwes
-    if 'label_id' in data_item:
-        lrp_kwes = []
-        for i, kwe_id in data_item['label_id']:
-            lrp_kwe = {'id': kwe_id, 'title': data_item['label'][i]}
-            lrp_kwes.append(lrp_kwe)
-        del data_item['label_id']
-        data_item['label'] = lrp_kwes
-
-
 def es_pump(arg) -> int:
     """
     ./mulabel es pump -c lrp_mulabel
@@ -136,6 +95,8 @@ def es_pump(arg) -> int:
     ./mulabel es init -c lrp_mulabel -l sl --public
     ./mulabel es pump -c lrp_mulabel -l sl --public
 
+    ./mulabel es drop -c mulabel -l sl --public
+    ./mulabel es init -c mulabel -l sl --public
     ./mulabel es pump -c mulabel -l sl --public
 
     ./mulabel es pump -c mulabel -l sl --public --seed_only
@@ -157,7 +118,10 @@ def es_pump(arg) -> int:
         'bge_m3': bge_m3_embed
     }
 
-    data_as_dicts = _load_data(arg, lrp)
+    data_file_name = os.path.join(arg.data_in_dir, f'lrp_{arg.collection}.csv' if lrp else f'{arg.collection}.csv')
+    data_df = load_add_corpus_part(data_file_name, 'label')
+    data_as_dicts = data_df.to_dict(orient='records')
+
     client = Elasticsearch(CLIENT_URL)
     try:
         if not client.indices.exists(index=arg.collection):
@@ -166,14 +130,9 @@ def es_pump(arg) -> int:
 
         stored = set()
         for data_item in data_as_dicts:
-            _restruct(lrp, data_item)
-
             logger.info('Processing item [%s]', data_item)
             for model_name, model in models.items():
-                if lrp:
-                    data_item['m_' + model_name] = model(data_item['passage'])[0].tolist()
-                else:
-                    data_item['m_' + model_name] = model(data_item['text'])[0].tolist()
+                data_item['m_' + model_name] = model(data_item['text'])[0].tolist()
             client.index(
                 index=arg.collection,
                 id=data_item['id'],
@@ -188,8 +147,8 @@ def es_pump(arg) -> int:
 
 def es_dedup(arg) -> int:
     """
-    ./mulabel es pump -c mulabel_lrp
-    ./mulabel es pump -c mulabel_lrp -l sl,sr
+    ./mulabel es pump -c lrp_mulabel
+    ./mulabel es pump -c lrp_mulabel -l sl,sr
 
     ./mulabel es drop -c lrp_mulabel -l sl --public
     ./mulabel es init -c lrp_mulabel -l sl --public
@@ -204,7 +163,10 @@ def es_dedup(arg) -> int:
     lrp = 'lrp' in arg.collection
     compute_arg_collection_name(arg)
 
-    data_as_dicts = _load_data(arg, lrp)
+    data_file_name = os.path.join(arg.data_in_dir, f'lrp_{arg.collection}.csv' if lrp else f'{arg.collection}.csv')
+    data_df = load_add_corpus_part(data_file_name, 'label')
+    data_as_dicts = data_df.to_dict(orient='records')
+
     client = Elasticsearch(CLIENT_URL)
     try:
         stored = set()
@@ -212,8 +174,6 @@ def es_dedup(arg) -> int:
             record_uuid = generate_uuid5(data_item)
             if record_uuid in stored:
                 continue
-
-            _restruct(lrp, data_item)
 
             client.index(
                 index=arg.collection,

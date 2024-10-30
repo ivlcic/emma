@@ -1,8 +1,12 @@
+import ast
 import os
 import csv
 import logging
 
-from typing import List, Dict, Any, Callable, Tuple
+from typing import List, Dict, Any, Callable, Tuple, Optional
+
+import pandas as pd
+import pandas.api.types as ptypes
 
 logger = logging.getLogger('mulabel.utils')
 
@@ -90,6 +94,77 @@ def sentence_segment(text: str, tokenize: Callable[[str], Any], segments: Dict[s
     segments['indices'].append(segments['indices'][-1] + len(sentence))
 
 
+def _add_passage_kwes(target_kwes: List, passage_kwes: List) -> None:
+    for passage_kwe in passage_kwes:
+        found = False
+        for target_kwe in target_kwes:
+            if target_kwe['id'] == passage_kwe['id']:
+                found = True
+                break
+        if not found:
+            target_kwes.append(passage_kwe)
+
+
+def _construct_passages(passage_size: int, passage_sizes, seed_label, all_sentences, label_ids_sent_idx):
+    tmp_db_labels = []
+    seen = {}
+    max_passage_size = max((size for size in passage_sizes if size < len(all_sentences)), default=passage_sizes[0])
+    passage_targets = [passage_size]
+    if passage_size >= max_passage_size:
+        passage_targets = [size for size in passage_sizes if size >= max_passage_size]
+
+    for label_id, label_data in label_ids_sent_idx.items():
+        # store all sentence indices for a given keyword expression match
+        # remove the ones that were included in a passage to minimize redundant overlapping passages
+        passage_center_sentence_indices = set(label_data['s_idx'])
+        for center_sentence_idx in label_data['s_idx']:
+            if center_sentence_idx not in passage_center_sentence_indices:
+                continue
+            sent_offset = passage_size // 2
+            start = center_sentence_idx - sent_offset
+            if start < 0:
+                start = 0
+            end = start + passage_size
+            if end > len(all_sentences) - 1:
+                end = len(all_sentences) - 1
+            passage = []
+            kwes = []
+            for j in range(start, end):
+                if j in passage_center_sentence_indices:
+                    passage_center_sentence_indices.remove(j)
+                    _add_passage_kwes(kwes, label_data['s_idx_kwe'][j])
+                passage.append(all_sentences[j])
+
+            if len(passage) < passage_size:
+                continue
+            if len(passage) <= 0:
+                continue
+
+            db_span_label = seed_label.copy()
+            db_span_label['label'] = [label_id]
+            db_span_label['label_info'] = [{'id': label_id, 'name': label_data['title'], 'kwe': kwes}]
+            db_span_label['passage_targets'] = passage_targets
+            db_span_label['passage_cat'] = passage_size
+            db_span_label['text'] = ' '.join(passage)
+            if db_span_label['text'] not in seen:
+                tmp_db_labels.append(db_span_label)
+                seen[db_span_label['text']] = db_span_label
+            else:
+                # compress same passages adding all labels to it
+                db_span_label = seen[db_span_label['text']]
+                found = False
+                for tmp_data in db_span_label['label_info']:
+                    if label_id == tmp_data['id']:
+                        tmp_data['kwe'].extend(kwes)
+                        found = True
+                        break
+                if not found:
+                    db_span_label['label_info'].append({'id': label_id, 'name': label_data['title'], 'kwe': kwes})
+                    db_span_label['label'].append(label_id)
+
+    return tmp_db_labels
+
+
 def construct_span_contexts(article: Dict[str, Any], tokenize: Callable[[str], Any],
                             maps: Dict[str, Any], passage_sizes: List[int]) -> Tuple[str, List[Dict[str, Any]]]:
     segment_spans = {
@@ -121,33 +196,38 @@ def construct_span_contexts(article: Dict[str, Any], tokenize: Callable[[str], A
         'm_id': article['m_id'],
         'country': article['country'],
         'lang': article['lang'],
+        'passage_targets': passage_sizes,
         'passage_cat': 0,
-        'passage': text,
-        'kwe': [],
-        'kwe_id': []
+        'text': text
     }
 
-    label_ids_sent_idx = {}  # we'll use this for relevant passage construction
-    all_sentences = []
+    label_ids_sent_idx = {}  # we'll use this intermediate dict for relevant passage construction
     for tag in article['tags']:
         segment_names = segment_spans.keys()
         all_spans_empty = all(not tag[key] for key in segment_names)
         db_label = seed_label.copy()
-        db_label['label_id'] = tag['id']
-        db_label['label_title'] = maps['labels'][tag['id']]['name']
-        db_label['kwe'] = []
-        db_label['kwe_id'] = []
+        db_label['label'] = [tag['id']]
+        db_label['label_info'] = [{'id': tag['id'], 'name': maps['labels'][tag['id']]['name']}]
         if all_spans_empty:
             logger.info(
                 'Article [%s] label [%s::%s] has no spans',
                 article['id'], tag['id'], maps['labels'][tag['id']]['name']
             )
-            db_labels.append(db_label)
+            # if multiple labels have no spans we just add label
+            found = False
+            for tmp_db_label in db_labels:
+                if tmp_db_label['passage_cat'] == 0:
+                    tmp_db_label['label'].append(tag['id'])
+                    tmp_db_label['label_info'].append({'id': tag['id'], 'name': maps['labels'][tag['id']]['name']})
+                    found = True
+                    break
+            if not found:
+                db_labels.append(db_label)
             continue
 
         # init each label to sentences index mapping
         if tag['id'] not in label_ids_sent_idx:
-            label_ids_sent_idx[tag['id']] = {'s_idx': [], 'kwe': [], 'kwe_id': [], 'title': ''}
+            label_ids_sent_idx[tag['id']] = {'s_idx': [], 'title': '', 's_idx_kwe': {}}
 
         prev_segment_offset = 0
         for segment_name in segment_names:  # title, body
@@ -162,57 +242,37 @@ def construct_span_contexts(article: Dict[str, Any], tokenize: Callable[[str], A
                     span_sentence = sentences[center_sentence_idx]
                     if true_idx not in label_ids_sent_idx[tag['id']]['s_idx']:
                         label_ids_sent_idx[tag['id']]['s_idx'].append(true_idx)
-                        label_ids_sent_idx[tag['id']]['kwe'].append([span['m']])
-                        label_ids_sent_idx[tag['id']]['kwe_id'].append([span['kwe']])
+                        label_ids_sent_idx[tag['id']]['s_idx_kwe'][true_idx] = [
+                            {'id': span['kwe'], 'value': span['m']}
+                        ]
                     else:
-                        label_ids_sent_idx[tag['id']]['kwe'][-1].append(span['m'])
-                        label_ids_sent_idx[tag['id']]['kwe_id'][-1].append(span['kwe'])
-                    label_ids_sent_idx[tag['id']]['title'] = db_label['label_title']
-            all_sentences.extend(sentences)
+                        label_ids_sent_idx[tag['id']]['s_idx_kwe'][true_idx].append(
+                            {'id': span['kwe'], 'value': span['m']}
+                        )
+                    label_ids_sent_idx[tag['id']]['title'] = maps['labels'][tag['id']]['name']
             prev_segment_offset += len(sentences)
 
     # add a larger (multi-sentence) passage matching keyword expression
     # considering overlaps also ... hence the complicated code
+    all_sentences = [s for sentences in segment_spans.values() for s in sentences['sentences']]
     for passage_size in passage_sizes:
-        for label_name, label_data in label_ids_sent_idx.items():
-            # store all sentence indices for a given keyword expression match
-            # remove the ones that were included in a passage to minimize redundant overlapping passages
-            passage_center_sentence_indices = set(label_data['s_idx'])
-            for center_sentence_idx in label_data['s_idx']:
-                if center_sentence_idx not in passage_center_sentence_indices:
-                    continue
-                sent_offset = passage_size // 2
-                start = center_sentence_idx - sent_offset
-                if start < 0:
-                    start = 0
-                end = start + passage_size
-                if end > len(all_sentences) - 1:
-                    end = len(all_sentences) - 1
-                passage = []
-                kwes = []
-                kwe_ids = []
-                for j in range(start, end):
-                    if j in passage_center_sentence_indices:
-                        passage_center_sentence_indices.remove(j)
-                        x = label_data['s_idx'].index(j)
-                        if x < len(label_data['kwe']):
-                            kwes.extend(label_data['kwe'][x])
-                        if x < len(label_data['kwe_id']):
-                            kwe_ids.extend(label_data['kwe_id'][x])
-                    passage.append(all_sentences[j])
-
-                if len(passage) < passage_size:
-                    continue
-                if len(passage) <= 0:
-                    continue
-
-                db_span_label = seed_label.copy()
-                db_span_label['kwe_id'] = kwe_ids
-                db_span_label['kwe'] = kwes
-                db_span_label['label_id'] = label_name
-                db_span_label['label_title'] = label_data['title']
-                db_span_label['passage_cat'] = passage_size
-                db_span_label['passage'] = ' '.join(passage)
-                db_labels.append(db_span_label)
+        tmp_db_labels = _construct_passages(passage_size, passage_sizes, seed_label, all_sentences, label_ids_sent_idx)
+        db_labels.extend(tmp_db_labels)
 
     return text, db_labels
+
+
+def load_add_corpus_part(f_name: str, l_col: str, data_df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+    logger.info(f'Reading file %s', f_name)
+    temp_df = pd.read_csv(f_name, encoding='utf-8')
+
+    if l_col + '_info' in temp_df.columns and ptypes.is_string_dtype(temp_df[l_col + '_info']):
+        temp_df[l_col + '_info'] = temp_df[l_col + '_info'].apply(ast.literal_eval)
+    if l_col in temp_df.columns:
+        if ptypes.is_string_dtype(temp_df[l_col]):
+            temp_df[l_col] = temp_df[l_col].apply(ast.literal_eval)
+        elif ptypes.is_integer_dtype(temp_df[l_col]):
+            temp_df[l_col] = temp_df[l_col].apply(lambda x: [x])
+    if isinstance(data_df, pd.DataFrame) is not None:
+        return pd.concat([data_df, temp_df])
+    return temp_df

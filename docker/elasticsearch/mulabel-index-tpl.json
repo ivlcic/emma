@@ -11,6 +11,7 @@
     "mappings": {
       "_source": { "enabled": true },
       "properties": {
+        "a_uuid": { "type": "keyword"},
         "a_id": {"type": "keyword"},
         "date": {"type": "date"},
         "m_id": {"type": "keyword"},
@@ -18,7 +19,14 @@
         "lang": {"type": "keyword"},
         "n_tokens": {"type": "long"},
         "text": {"type": "text"},
-        "labels": {"type": "keyword"},
+        "label_info": {
+          "type": "nested",
+          "properties": {
+            "id": {"type": "keyword"},
+            "name": {"type": "text"}
+          }
+        },
+        "label": {"type": "keyword"},
         "m_bge_m3": {
           "type": "dense_vector",
           "dims": 1024,
