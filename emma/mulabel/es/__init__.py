@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 
 from argparse import ArgumentParser
-from typing import Callable, Dict, Any, List
+from typing import Dict, Any, List
 
 import pandas as pd
 from elasticsearch import Elasticsearch
@@ -51,7 +51,7 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
     )
     parser.add_argument(
         '--passage_size', help='When calibrating use passage_size',
-        type=int, default=1, choices=[1,3,5,7,9,0]
+        type=int, default=1, choices=[1, 3, 5, 7, 9, 0]
     )
 
 
@@ -129,6 +129,7 @@ def _prepare_documents(arg, models, data_chunk):
         yield op
 
 
+# noinspection DuplicatedCode
 def es_pump(arg) -> int:
     """
     ./mulabel es pump -c lrp_mulabel
@@ -185,6 +186,7 @@ def es_pump(arg) -> int:
     return 0
 
 
+# noinspection DuplicatedCode
 def es_dedup(arg) -> int:
     """
     ./mulabel es pump -c lrp_mulabel

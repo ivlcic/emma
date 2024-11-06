@@ -4,6 +4,7 @@ from typing import List, Dict, Tuple
 
 import torch
 import pandas as pd
+import pandas.api.types as ptypes
 
 from torch.utils.data import DataLoader
 
@@ -29,6 +30,11 @@ def _load_data(split_dir, corpus: str):
             if 'text' in col:
                 text_set[split] = data[col].tolist()
             if 'label' in col:
+                if ptypes.is_string_dtype(data[col]):
+                    value = data[col].iloc[0][1]
+                    if value.startswith('['):
+                        labeler = MultilabelLabeler()
+                        data[col] = data[col].apply(lambda x: ast.literal_eval(x))
                 if col.startswith('ml_'):
                     labeler = MultilabelLabeler()
                     data['ml_label'] = data['ml_label'].apply(lambda x: ast.literal_eval(x))

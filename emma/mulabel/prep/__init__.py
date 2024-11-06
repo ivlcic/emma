@@ -312,8 +312,9 @@ def prep_corpus_merge(arg) -> int:
     # Function to filter labels in samples
     valid_labels_l = set(valid_labels.tolist())
     print(f'Valid Labels: {len(valid_labels_l)}')
+
     def filter_labels(label_list):
-        return [label for label in label_list if label in valid_labels_l]
+        return [_label for _label in label_list if _label in valid_labels_l]
     # Apply the filter function to the labels column
     data_df[l_col] = data_df[l_col].apply(filter_labels)
     # Remove samples with no labels
@@ -337,7 +338,8 @@ def prep_corpus_split(arg) -> int:
         a_file_name = os.path.join(arg.data_in_dir, f'{coll_name}.csv')
         data_df = pd.read_csv(a_file_name, encoding='utf-8')
         if 'a_id' not in data_df.columns:
-            data_df['a_uuid'] = [uuid.uuid5(uuid.NAMESPACE_DNS, str(i)) for i in range(len(data_df))]  # synthetic a_uuid
+            # synthetic a_id and a_uuid
+            data_df['a_uuid'] = [uuid.uuid5(uuid.NAMESPACE_DNS, str(i)) for i in range(len(data_df))]
             data_df['a_id'] = [str(uuid_val).split('-')[0] for uuid_val in data_df['a_uuid']]
         if 'label_col' in arg and arg.label_col and arg.label_col in data_df.columns:
             data_df = data_df.rename(columns={arg.label_col: 'label'})
@@ -465,6 +467,7 @@ def prep_corpus_eurlex(arg) -> int:
     return 0
 
 
+# noinspection DuplicatedCode
 def prep_corpus_analyze(arg) -> int:
     """
     Analyses corpus multilabel data
