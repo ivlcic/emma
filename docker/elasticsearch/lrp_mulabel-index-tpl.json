@@ -1,6 +1,6 @@
 {
   "index_patterns": [
-    "lrp_mulabel*"
+    "lrp_mulabel*", "lrp_eurlex*", "lrp_20news*", "lrp_reuters*"
   ],
   "priority": 10,
   "template" : {

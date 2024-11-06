@@ -88,9 +88,15 @@ Now, if we repeat steps, the scripts will mark the corpus's duplicates and do tr
 ./mulabel prep corpus_extract -c mulabel -l sl --public --postfix 2023_01,2023_02
 ./mulabel prep corpus_merge -c mulabel -l sl --public --postfix 2023_01,2023_02
 ./mulabel prep corpus_split -c mulabel -l sl --public --postfix 2023_01,2023_02
+./mulabel prep corpus_split -c eurlex --label_col ml_label  # for splitting an alternative corpora
+
+# pump in the data
 export CUDA_VISIBLE_DEVICES=0  # in our case we have to pin to specific Nvidia card cause we're "under-resourced" :)
-./mulabel es drop -c mulabel -l sl --public  --suffix train # delete previous index
-./mulabel es init -c mulabel -l sl --public  --suffix train # initialize new index with a template
+./mulabel es drop -c mulabel -l sl --public  --suffix train # delete the previous index
+./mulabel es init -c mulabel -l sl --public  --suffix train # initialize a new index
 ./mulabel es pump -c mulabel -l sl --public  --suffix train # pump in the data
+
+./mulabel es init -c eurlex --suffix train  # pump in the data for the alternative collection
+./mulabel es pump -c eurlex --suffix train  
 ```
 

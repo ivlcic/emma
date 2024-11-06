@@ -1,6 +1,6 @@
 {
   "index_patterns": [
-    "mulabel*"
+    "mulabel*", "eurlex*", "20news*", "reuters*"
   ],
   "priority": 10,
   "template" : {

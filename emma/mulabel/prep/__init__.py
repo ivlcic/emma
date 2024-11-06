@@ -4,6 +4,7 @@ import os
 import json
 import csv
 import logging
+import uuid
 import uuid as uuid_lib
 import numpy as np
 import pandas as pd
@@ -329,12 +330,24 @@ def prep_corpus_merge(arg) -> int:
 
 
 def prep_corpus_split(arg) -> int:
+    coll_name = arg.collection
     compute_arg_collection_name(arg)
     a_file_name = os.path.join(arg.data_in_dir, f'{arg.collection}.csv')
-    data_df = pd.read_csv(a_file_name, encoding='utf-8')
+    if not os.path.exists(a_file_name):  # for other data
+        a_file_name = os.path.join(arg.data_in_dir, f'{coll_name}.csv')
+        data_df = pd.read_csv(a_file_name, encoding='utf-8')
+        if 'a_id' not in data_df.columns:
+            data_df['a_uuid'] = [uuid.uuid5(uuid.NAMESPACE_DNS, str(i)) for i in range(len(data_df))]  # synthetic a_uuid
+            data_df['a_id'] = [str(uuid_val).split('-')[0] for uuid_val in data_df['a_uuid']]
+        if 'label_col' in arg and arg.label_col and arg.label_col in data_df.columns:
+            data_df = data_df.rename(columns={arg.label_col: 'label'})
+    else:
+        data_df = pd.read_csv(a_file_name, encoding='utf-8')
 
     lrp_file_name = os.path.join(arg.data_in_dir, f'lrp_{arg.collection}.csv')
-    lrp_df = pd.read_csv(lrp_file_name, encoding='utf-8')
+    lrp_df = None
+    if os.path.exists(lrp_file_name):  # for other data
+        lrp_df = pd.read_csv(lrp_file_name, encoding='utf-8')
 
     # Perform an initial stratified split to create train and temp (dev+test) sets
     train_ids, temp_ids = train_test_split(
@@ -357,17 +370,19 @@ def prep_corpus_split(arg) -> int:
     logger.info('Done with train_test_split 2.')
 
     # Convert back to DataFrame for easier manipulation
-    lrp_train_df = lrp_df[lrp_df['a_id'].isin(train_df['a_id'])]
-    lrp_dev_df   = lrp_df[lrp_df['a_id'].isin(dev_df['a_id'])]
-    lrp_test_df  = lrp_df[lrp_df['a_id'].isin(test_df['a_id'])]
+    if lrp_df is not None:
+        lrp_train_df = lrp_df[lrp_df['a_id'].isin(train_df['a_id'])]
+        lrp_dev_df   = lrp_df[lrp_df['a_id'].isin(dev_df['a_id'])]
+        lrp_test_df  = lrp_df[lrp_df['a_id'].isin(test_df['a_id'])]
+        lrp_train_df.to_csv(os.path.join(arg.data_split_dir, f'lrp_{arg.collection}_train.csv'), index=False)
+        lrp_dev_df.to_csv(os.path.join(arg.data_split_dir, f'lrp_{arg.collection}_dev.csv'), index=False)
+        lrp_test_df.to_csv(os.path.join(arg.data_split_dir, f'lrp_{arg.collection}_test.csv'), index=False)
 
     # Save the splits to CSV files
     train_df.to_csv(os.path.join(arg.data_split_dir, f'{arg.collection}_train.csv'), index=False)
-    lrp_train_df.to_csv(os.path.join(arg.data_split_dir, f'lrp_{arg.collection}_train.csv'), index=False)
     dev_df.to_csv(os.path.join(arg.data_split_dir, f'{arg.collection}_dev.csv'), index=False)
-    lrp_dev_df.to_csv(os.path.join(arg.data_split_dir, f'lrp_{arg.collection}_dev.csv'), index=False)
     test_df.to_csv(os.path.join(arg.data_split_dir, f'{arg.collection}_test.csv'), index=False)
-    lrp_test_df.to_csv(os.path.join(arg.data_split_dir, f'lrp_{arg.collection}_test.csv'), index=False)
+
     return 0
 
 

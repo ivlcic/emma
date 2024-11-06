@@ -113,7 +113,7 @@ def get_reldi_tokenizer(lang: str):
 def get_segmenter(lang, tmp_dir):
     if lang in ['sm']:
         return get_obeliks_tokenizer(lang)
-    elif lang in ['se', 'bg', 'hr', 'sr', 'mk']:
+    elif lang in ['se', 'bg', 'hr', 'sr', 'mk', 'sq', 'bs']:
         return get_reldi_tokenizer(lang)
     else:
         return get_stanza_tokenizer(lang, tmp_dir)
