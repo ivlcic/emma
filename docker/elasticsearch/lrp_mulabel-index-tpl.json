@@ -34,9 +34,12 @@
         "label": {"type": "keyword"},
         "passage_cat": {"type": "long"},
         "passage_targets": {"type": "long"},
+        "m_social": {"type": "long"},
+        "dup": {"type": "long"},
         "text": {"type": "text"},
         "published": {"type": "date"},
         "created": {"type": "date"},
+        "date": {"type": "date"},
         "m_bge_m3": {
           "type": "dense_vector",
           "dims": 1024,

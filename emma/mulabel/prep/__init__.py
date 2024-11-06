@@ -27,6 +27,11 @@ logger = logging.getLogger('mulabel.prep')
 
 __label_columns = ['label', 'tags', 'ml_label', 'mc_label', 'topics']
 
+__social_media = {
+    '8e3b359f', '3e1c137d', '86f18af6', '1fd92aa0', 'c0953029', '1843f51e',
+    '151a2b9a', '05b54365', '0e9d50b8', '9f6a5e6c', 'f789b185'
+}
+
 
 # noinspection DuplicatedCode
 def add_args(module_name: str, parser: ArgumentParser) -> None:
@@ -101,13 +106,31 @@ def prep_corpus_extract(arg) -> int:
     else:
         arg.postfix = [arg.postfix]
 
+    article_input_cols = [
+        'uuid', 'public', 'created', 'published', 'country', 'mon_country', 'lang', 'script', 'm_id',
+        'rel_path', 'url', 'sent', 'words', 'sp_tokens', 'tags_count', 'tags'
+    ]
+
+    article_dup_cols = [
+        'a_uuid', 'date', 'text', 'similar_uuid', 'similar_id'
+    ]
+
+    article_output_cols = [
+        'a_id', 'a_uuid', 'date', 'm_id', 'public', 'lang', 'n_tokens',
+        'text', 'label', 'label_info', 'm_social', 'dup'
+    ]
+
+    duplicate_file_name = os.path.join(
+        arg.data_in_dir, f'{arg.collection}_duplicates.csv'
+    )
+    duplicates = {}
+    if os.path.exists(duplicate_file_name):
+        duplicates = load_map_file(duplicate_file_name, article_dup_cols)
+
     for postfix in arg.postfix:
         article_map_file_name = os.path.join(arg.data_in_dir, 'map', f'map_articles_{postfix}.csv')
-        article_cols = [
-            'uuid', 'public', 'created', 'published', 'country', 'mon_country', 'lang', 'script', 'm_id',
-            'rel_path', 'url', 'sent', 'words', 'sp_tokens', 'tags_count', 'tags'
-        ]
-        map_articles = load_map_file(article_map_file_name, article_cols)
+
+        map_articles = load_map_file(article_map_file_name, article_input_cols)
 
         file_name = os.path.join(arg.data_in_dir, 'src', f'data_{postfix}.jsonl')
         with open(file_name, 'r', encoding='utf8') as json_file:
@@ -118,9 +141,7 @@ def prep_corpus_extract(arg) -> int:
         with open(l_file_name, 'w', encoding='utf8') as l_file, \
                 open(a_file_name, 'w', encoding='utf8') as a_file:
             a_writer = csv.writer(a_file)
-            a_writer.writerow(
-                ['a_id', 'a_uuid', 'date', 'm_id', 'public', 'lang', 'n_tokens', 'text', 'label', 'label_info']
-            )
+            a_writer.writerow(article_output_cols)
             l_writer = csv.writer(l_file)
             l_header_written = False
             stored = set()
@@ -141,6 +162,14 @@ def prep_corpus_extract(arg) -> int:
                 if not segmenter:
                     logger.warning('Missing [%s] tokenizer', article['lang'])
                     continue
+
+                article['m_social'] = 0
+                if article['m_id'] in __social_media:
+                    article['m_social'] = 1
+
+                article['dup'] = 0
+                if article['id'] in duplicates:
+                    article['dup'] = 1
 
                 labels = []
                 label_ids = []
@@ -172,6 +201,8 @@ def prep_corpus_extract(arg) -> int:
                         text,
                         label_ids,
                         labels,
+                        article['m_social'],
+                        article['dup']
                     ]
                 )
 
@@ -207,7 +238,8 @@ def prep_corpus_extract(arg) -> int:
 
 def prep_corpus_merge(arg) -> int:
     """
-    Preps training data. Selects part of a corpus based on a postfix(es) and makes train/eval/test split.
+    Merges parts of a corpus based on a postfix(es) and removes single occurring label samples
+    and duplicates (if marked as such).
     ./mulabel prep corpus_merge -l sl --public --postfix 2023_01,2023_02,2023_03,2023_04,2023_05
     ./mulabel prep corpus_merge -l sl --public --seed_only --postfix 2023_01,2023_02,2023_03,2023_04,2023_05
     ./mulabel prep corpus_merge -l sl,sr --public --seed_only --postfix 2023_01,2023_02,2023_03,2023_04,2023_05
@@ -236,6 +268,14 @@ def prep_corpus_merge(arg) -> int:
 
         a_file_name = os.path.join(arg.data_out_dir, f'{arg.collection}_{postfix}.csv')
         data_df = load_add_corpus_part(a_file_name, l_col, data_df)
+
+    if 'dup' in data_df.columns:
+        logger.debug("Will drop duplicates (if dup mark exists).")
+        data_df = data_df[data_df['dup'] == 0]
+
+    if 'dup' in data_df.columns:
+        logger.debug("Will drop lrp duplicates (if dup mark exists).")
+        lrp_df = lrp_df[lrp_df['dup'] == 0]
 
     print(data_df.head())
 
@@ -285,10 +325,11 @@ def prep_corpus_merge(arg) -> int:
     data_df.to_csv(os.path.join(arg.data_in_dir, f'{arg.collection}.csv'), index=False, encoding='utf-8')
     labels_df.to_csv(os.path.join(arg.data_in_dir, f'{arg.collection}_map_labels.csv'), index=False, encoding='utf-8')
     lrp_df.to_csv(os.path.join(arg.data_in_dir, f'lrp_{arg.collection}.csv'), index=False)
+    return 0
 
 
 def prep_corpus_split(arg) -> int:
-    l_col = arg.label_col
+    compute_arg_collection_name(arg)
     a_file_name = os.path.join(arg.data_in_dir, f'{arg.collection}.csv')
     data_df = pd.read_csv(a_file_name, encoding='utf-8')
 
@@ -296,26 +337,29 @@ def prep_corpus_split(arg) -> int:
     lrp_df = pd.read_csv(lrp_file_name, encoding='utf-8')
 
     # Perform an initial stratified split to create train and temp (dev+test) sets
-    X_train_id, X_temp_id, X_train_lang, X_temp_lang, X_train, X_temp, y_train, y_temp = train_test_split(
-        data_df['id'], data_df['lang'], data_df['text'], data_df[l_col], test_size=0.2, random_state=2611
+    train_ids, temp_ids = train_test_split(
+        data_df['a_id'], test_size=0.2, random_state=2611
     )
+
+    train_df = data_df[data_df['a_id'].isin(train_ids)]
+    dev_test_df = data_df[data_df['a_id'].isin(temp_ids)]
 
     logger.info('Done with train_test_split 1.')
 
     # Further split the temp set into dev and test sets
-    X_dev_id, X_test_id, X_dev_lang, X_test_lang, X_dev, X_test, y_dev, y_test = train_test_split(
-        X_temp_id, X_temp_lang, X_temp, y_temp, test_size=0.5, random_state=2611
+    dev_ids, test_ids = train_test_split(
+        dev_test_df['a_id'], test_size=0.5, random_state=2611
     )
+
+    dev_df = dev_test_df[dev_test_df['a_id'].isin(dev_ids)]
+    test_df = dev_test_df[dev_test_df['a_id'].isin(test_ids)]
 
     logger.info('Done with train_test_split 2.')
 
     # Convert back to DataFrame for easier manipulation
-    train_df = pd.DataFrame({'id': X_train_id, 'lang':X_train_lang,'text': X_train, 'labels': y_train})
-    dev_df = pd.DataFrame({'id': X_dev_id, 'lang': X_dev_lang, 'text': X_dev, 'labels': y_dev})
-    test_df = pd.DataFrame({'id': X_test_id, 'lang': X_test_lang, 'text': X_test, 'labels': y_test})
-    lrp_train_df = lrp_df[lrp_df['a_id'].isin(train_df['id'])]
-    lrp_dev_df = lrp_df[lrp_df['a_id'].isin(dev_df['id'])]
-    lrp_test_df = lrp_df[lrp_df['a_id'].isin(test_df['id'])]
+    lrp_train_df = lrp_df[lrp_df['a_id'].isin(train_df['a_id'])]
+    lrp_dev_df   = lrp_df[lrp_df['a_id'].isin(dev_df['a_id'])]
+    lrp_test_df  = lrp_df[lrp_df['a_id'].isin(test_df['a_id'])]
 
     # Save the splits to CSV files
     train_df.to_csv(os.path.join(arg.data_split_dir, f'{arg.collection}_train.csv'), index=False)

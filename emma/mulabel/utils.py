@@ -196,6 +196,8 @@ def construct_span_contexts(article: Dict[str, Any], tokenize: Callable[[str], A
         'a_uuid': article['uuid'] if 'uuid' in article else None,
         'a_id': article['id'],
         'm_id': article['m_id'],
+        'm_social': article['m_social'],
+        'dup': article['dup'],
         'country': article['country'],
         'lang': article['lang'],
         'passage_targets': passage_sizes,

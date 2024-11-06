@@ -20,7 +20,10 @@ services:
       - "9266:9200"
       - "9366:9300"
     volumes:
-      - ./elasticsearch/data:/usr/bin/elasticsearch
+      # mkdir -p ../tmp/mulabel/elasticsearch
+      # chown -R 1000:0 ../tmp/mulabel/elasticsearch
+      # chmod g+rwx ../tmp/mulabel/elasticsearch
+      - ../tmp/mulabel/elasticsearch:/usr/share/elasticsearch/data
     networks:
       - netzwerk
 

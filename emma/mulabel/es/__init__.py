@@ -1,21 +1,25 @@
-import ast
 import os
 import logging
-import pandas as pd
-import pandas.api.types as ptypes
+from datetime import datetime
 
 from argparse import ArgumentParser
 from typing import Callable, Dict, Any, List
 
+import pandas as pd
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
+
 from FlagEmbedding import BGEM3FlagModel
 
+from .utils import load_data, find_similar
 from ..tokenizer import get_segmenter
 from ..utils import __supported_languages, compute_arg_collection_name, load_add_corpus_part
 from ...core.args import CommonArguments
 
 logger = logging.getLogger('mulabel.es')
+
+es_logger = logging.getLogger("elastic_transport.transport")
+es_logger.setLevel(logging.WARN)
 
 CLIENT_URL = "http://localhost:9266/"
 
@@ -25,7 +29,7 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
     CommonArguments.raw_data_dir(module_name, parser, ('-o', '--data_out_dir'))
     CommonArguments.tmp_dir(module_name, parser, ('-t', '--tmp_dir'))
     parser.add_argument(
-        '-c', '--collection', help='Collection to manage.', type=str,
+        '-c', '--collection', help='Collection to manage.', type=str, default='mulabel'
     )
     parser.add_argument(
         '-l', '--lang',
@@ -120,7 +124,7 @@ def _prepare_documents(arg, models, data_chunk):
             '_op_type': 'index',
             '_index': f'lrp_{arg.collection}' if lrp else f'{arg.collection}',
             '_id': data_item['uuid'] if 'uuid' in data_item else data_item['a_uuid'],
-            'doc': data_item
+            '_source': data_item
         }
         yield op
 
@@ -197,18 +201,50 @@ def es_dedup(arg) -> int:
     """
     os.environ['HF_HOME'] = arg.tmp_dir  # local tmp dir
     compute_arg_collection_name(arg)
-    data_as_dicts = data_as_dicts = _load_data(arg)
+    start_date = datetime(2022, 12, 31)
+    end_date = datetime(2023, 6, 2)
 
+    state = {'count': 0, 'duplicates': set(), 'dup_map': {}, 'doc': {}}
+    duplicates = []
     client = Elasticsearch(CLIENT_URL)
     try:
-        for data_item in data_as_dicts:
-            id = data_item['uuid'] if 'uuid' in data_item else data_item['a_uuid']
-            client.index(
-                index=arg.collection,
-                id=id,
-                document=data_item,
-            )
+        def on_similar(data_item: Dict[str, Any], score: float) -> bool:
+            if score > 0.99:
+                q_a_uuid = state['doc']['a_uuid']
+                v_a_uuid = data_item['a_uuid']
+                # logger.info(
+                #    'Article [%s] [%s][%s] is very similar to [%s][%s]',
+                #    state['count'], q_a_uuid, state['doc']['date'], v_a_uuid, data_item['date']
+                # )
+                # logger.info('Similar texts: \n\n[%s]\n\n[%s]', state['doc']['text'], data_item['text'])
+                if q_a_uuid not in state['dup_map']:
+                    state['dup_map'][q_a_uuid] = [v_a_uuid]
+                else:
+                    state['dup_map'][q_a_uuid].append(v_a_uuid)
+                state['duplicates'].add(v_a_uuid)
+                del data_item['m_bge_m3']
+                data_item['similar_uuid'] = q_a_uuid
+                data_item['similar_id'] = state['doc']['a_id']
+                # data_item['similar_text'] = state['doc']['text']
+                duplicates.append(data_item)
+            return True
+
+        def on_item(data_item: Dict[str, Any]) -> bool:
+            state['count'] += 1
+            state['doc'] = data_item
+            if data_item['a_uuid'] in state['duplicates']:
+                return True
+            find_similar(client, arg.collection, data_item['a_uuid'], data_item['m_bge_m3'], on_similar)
+            return True
+
+        load_data(client, arg.collection, start_date, end_date, on_item)
     finally:
         client.close()
 
+    lrp = 'lrp' in arg.collection
+    data_file_name = os.path.join(
+        arg.data_out_dir, f'lrp_{arg.collection}.csv' if lrp else f'{arg.collection}_duplicates.csv'
+    )
+    df = pd.DataFrame(duplicates)
+    df.to_csv(data_file_name, index=False, encoding='utf8')
     return 0
