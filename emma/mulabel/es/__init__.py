@@ -10,11 +10,14 @@ from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
 
 from FlagEmbedding import BGEM3FlagModel
+from sklearn.metrics import precision_score, recall_score, f1_score
+from tqdm import tqdm
 
-from .utils import load_data, find_similar
+from ...core.labels import MultilabelLabeler
+from ...core.args import CommonArguments
 from ..tokenizer import get_segmenter
 from ..utils import __supported_languages, compute_arg_collection_name, load_add_corpus_part
-from ...core.args import CommonArguments
+from .utils import load_data, find_similar
 
 logger = logging.getLogger('mulabel.es')
 
@@ -94,14 +97,14 @@ def es_drop(arg) -> int:
     return 0
 
 
-def _load_data(arg) -> List[Dict[str, Any]]:
-    lrp = 'lrp' in arg.collection
+def _load_data(arg, coll: str) -> List[Dict[str, Any]]:
+    lrp = 'lrp' in coll
     data_file_name = os.path.join(
-        arg.data_in_dir, f'lrp_{arg.collection}.csv' if lrp else f'{arg.collection}.csv'
+        arg.data_in_dir, f'lrp_{coll}.csv' if lrp else f'{coll}.csv'
     )
     if not os.path.exists(data_file_name):
         data_file_name = os.path.join(
-            arg.data_out_dir, f'lrp_{arg.collection}.csv' if lrp else f'{arg.collection}.csv'
+            arg.data_out_dir, f'lrp_{coll}.csv' if lrp else f'{coll}.csv'
         )
     data_df = load_add_corpus_part(data_file_name, 'label')
     return data_df.to_dict(orient='records')
@@ -113,16 +116,16 @@ def _chunk_data(data_list, chunk_size=500):
         yield data_list[i:i + chunk_size]
 
 
-def _prepare_documents(arg, models, data_chunk):
+def _prepare_documents(coll: str, models, data_chunk):
     """Prepare documents for bulk indexing"""
-    lrp = 'lrp' in arg.collection
+    lrp = 'lrp' in coll
     for data_item in data_chunk:
         # logger.info('Processing item [%s]', data_item)
         for model_name, model in models.items():
             data_item['m_' + model_name] = model(data_item['text'])[0].tolist()
         op = {
             '_op_type': 'index',
-            '_index': f'lrp_{arg.collection}' if lrp else f'{arg.collection}',
+            '_index': f'lrp_{coll}' if lrp else f'{coll}',
             '_id': data_item['uuid'] if 'uuid' in data_item else data_item['a_uuid'],
             '_source': data_item
         }
@@ -160,7 +163,7 @@ def es_pump(arg) -> int:
         'bge_m3': bge_m3_embed
     }
 
-    data_as_dicts = _load_data(arg)
+    data_as_dicts = _load_data(arg, arg.collection)
 
     client = Elasticsearch(CLIENT_URL)
     try:
@@ -173,13 +176,13 @@ def es_pump(arg) -> int:
         for chunk in _chunk_data(data_as_dicts, chunk_size=1000):
             success, failed = bulk(
                 client=client,
-                actions=_prepare_documents(arg, models, chunk),
+                actions=_prepare_documents(arg.collection, models, chunk),
                 request_timeout=60
             )
 
             total_indexed += success
             total_failed += len(failed) if failed else 0
-            print(f"Processed chunk: {success} succeeded, {len(failed) if failed else 0} failed")
+            logger.info(f"Processed chunk: {success} succeeded, {len(failed) if failed else 0} failed")
     finally:
         client.close()
 
@@ -249,4 +252,80 @@ def es_dedup(arg) -> int:
     )
     df = pd.DataFrame(duplicates)
     df.to_csv(data_file_name, index=False, encoding='utf8')
+    return 0
+
+
+# noinspection DuplicatedCode
+def es_test_bge_m3(arg) -> int:
+    """
+    ./mulabel es test_bge_m3 -c lrp_mulabel
+    ./mulabel es test_bge_m3 -c lrp_mulabel -l sl,sr
+
+    ./mulabel es test_bge_m3 -c lrp_mulabel -l sl --public
+    ./mulabel es test_bge_m3 -c lrp_mulabel -l sl --public
+
+    ./mulabel es test_bge_m3 -c mulabel -l sl
+    ./mulabel es test_bge_m3 -c mulabel -l sl --public
+    ./mulabel es test_bge_m3 -c mulabel -l sl --public --seed_only
+    """
+    os.environ['HF_HOME'] = arg.tmp_dir  # local tmp dir
+
+    compute_arg_collection_name(arg)
+    tokenizers = {}
+    for lang in arg.lang:
+        tokenizers[lang] = get_segmenter(lang, arg.tmp_dir)
+    bge_m3_model = BGEM3FlagModel('BAAI/bge-m3', use_fp16=True)
+
+    def bge_m3_embed(text_to_embed: str):
+        return bge_m3_model.encode([text_to_embed])['dense_vecs']
+
+    models = {
+        'bge_m3': bge_m3_embed
+    }
+
+    train_coll_name = arg.collection + '_train'
+    test_coll_name = arg.collection + '_test'
+    data_as_dicts = _load_data(arg, test_coll_name)
+
+    labels_file_name = os.path.join(arg.data_in_dir, f'{arg.collection}_labels.csv')
+    with open(labels_file_name, 'r') as l_file:
+        all_labels = [line.split(',')[0].strip() for line in l_file]
+    if all_labels[0] == 'label':
+        all_labels.pop(0)
+    labeler = MultilabelLabeler(all_labels)
+    labeler.fit()
+
+    state = {'doc': {}}
+    y_true = []
+    y_pred = []
+    client = Elasticsearch(CLIENT_URL)
+    try:
+        if not client.indices.exists(index=train_coll_name):
+            logger.warning('Collection [%s] does not exist.', train_coll_name)
+            return 1
+
+        def on_similar(data_item: Dict[str, Any], score: float) -> bool:
+            y_pred.append(labeler.vectorize([data_item['label']])[0])
+            y_true.append(labeler.vectorize([state['doc']["label"]])[0])
+            return True
+
+        for data_item in tqdm(data_as_dicts, desc='Processing zero shot complete eval.'):
+            for model_name, model in models.items():
+                data_item['m_' + model_name] = model(data_item['text'])[0].tolist()
+            state['doc'] = data_item
+            num_ret = find_similar(
+                client, train_coll_name, data_item['a_uuid'], data_item['m_bge_m3'], on_similar
+            )
+            if num_ret == 0:
+                y_pred.append(labeler.vectorize([[]])[0])
+
+    finally:
+        client.close()
+
+    average_type = 'micro'
+    p = precision_score(y_true, y_pred, average=average_type)
+    r = recall_score(y_true, y_pred, average=average_type)
+    f1 = f1_score(y_true, y_pred, average=average_type)
+    print(f'Precision:{p}\nRecall:{r}\nF1:{f1}')
+
     return 0

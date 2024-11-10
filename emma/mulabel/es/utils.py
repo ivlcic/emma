@@ -22,21 +22,21 @@ def load_data(client: Elasticsearch, collection: str, start_date: datetime, end_
     # Process data in date chunks
     date_ranges = list(_get_date_ranges(start_date, end_date))
 
-    for start, end in tqdm(date_ranges, desc="Processing date ranges"):
+    for start, end in tqdm(date_ranges, desc='Processing date ranges'):
         # Get documents for the current date range
         query = {
-            "size": 10000,
-            "query": {
-                "range": {
-                    "date": {
-                        "gte": start.astimezone().isoformat(),
-                        "lt": end.astimezone().isoformat()
+            'size': 10000,
+            'query': {
+                'range': {
+                    'date': {
+                        'gte': start.astimezone().isoformat(),
+                        'lt': end.astimezone().isoformat()
                     }
                 }
             },
-            "_source": ["a_uuid", "a_id", "date", "text", "m_bge_m3"],
-            "sort": {
-                "date": "asc"
+            '_source': ['a_uuid', 'a_id', 'date', 'text', 'm_bge_m3', 'label'],
+            'sort': {
+                'date': 'asc'
             }
         }
 
@@ -54,37 +54,35 @@ def load_data(client: Elasticsearch, collection: str, start_date: datetime, end_
 
 
 def find_similar(client: Elasticsearch, collection: str, uuid: str, vector: List[float],
-                 callback: Callable[[Dict[str, Any], float], bool]) -> None:
+                 callback: Callable[[Dict[str, Any], float], bool]) -> int:
     query = {
-        "size": 50,
-        "query": {
-            "bool": {
-                "must_not": [
+        'size': 50,
+        'query': {
+            'bool': {
+                'must_not': [
                     {
-                        "term": {
-                            "a_uuid": uuid
+                        'term': {
+                            'a_uuid': uuid
                         }
                     }
                 ],
-                "must": {
-                    "knn": {
-                        "field": "m_bge_m3",
-                        "query_vector": vector,
-                        "k": 50
+                'must': {
+                    'knn': {
+                        'field': 'm_bge_m3',
+                        'query_vector': vector,
+                        'k': 50
                     }
                 },
             }
         },
-        "_source": ["a_uuid", "a_id", "date", "text", "m_bge_m3"],
-        "sort": {
-            "_score": "desc"
+        '_source': ['a_uuid', 'a_id', 'date', 'text', 'm_bge_m3', 'label'],
+        'sort': {
+            '_score': 'desc'
         }
     }
 
     response = client.search(index=collection, body=query)
-    # logger.info(
-    #     'Response for range [%s][%s]', start.astimezone().isoformat(), end.astimezone().isoformat()
-    # )
     for doc in response['hits']['hits']:
         if not callback(doc['_source'], doc['_score']):
             break
+    return len(response['hits']['hits'])

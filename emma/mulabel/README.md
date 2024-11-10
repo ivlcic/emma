@@ -87,7 +87,7 @@ Now, if we repeat steps, the scripts will mark the corpus's duplicates and do tr
 ```bash
 ./mulabel prep corpus_extract -c mulabel -l sl --public --postfix 2023_01,2023_02
 ./mulabel prep corpus_merge -c mulabel -l sl --public --postfix 2023_01,2023_02
-./mulabel prep corpus_split -c mulabel -l sl --public --postfix 2023_01,2023_02
+./mulabel prep corpus_split -c mulabel -l sl --public
 ./mulabel prep corpus_split -c eurlex --label_col ml_label  # for splitting an alternative corpora
 
 # pump in the data
@@ -100,3 +100,10 @@ export CUDA_VISIBLE_DEVICES=0  # in our case we have to pin to specific Nvidia c
 ./mulabel es pump -c eurlex --suffix train  
 ```
 
+## Tests
+When the corpus is prepared we can run zero shot classification tests. 
+The script expects train/dev/test split files in `data/mulabel/split` directory and *Elasticsearch* indexed train collection. 
+
+```
+./mulabel es test_bge_m3 -c mulabel -l sl --public
+```

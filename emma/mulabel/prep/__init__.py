@@ -345,6 +345,10 @@ def prep_corpus_split(arg) -> int:
             data_df = data_df.rename(columns={arg.label_col: 'label'})
     else:
         data_df = pd.read_csv(a_file_name, encoding='utf-8')
+    if ptypes.is_string_dtype(data_df['label']):
+        data_df['label'] = data_df['label'].apply(ast.literal_eval)
+    elif ptypes.is_integer_dtype(data_df['label']):
+        data_df['label'] = data_df['label'].apply(lambda x: [x])
 
     lrp_file_name = os.path.join(arg.data_in_dir, f'lrp_{arg.collection}.csv')
     lrp_df = None
@@ -359,7 +363,7 @@ def prep_corpus_split(arg) -> int:
     train_df = data_df[data_df['a_id'].isin(train_ids)]
     dev_test_df = data_df[data_df['a_id'].isin(temp_ids)]
 
-    logger.info('Done with train_test_split 1.')
+    logger.info('Done with train temp split.')
 
     # Further split the temp set into dev and test sets
     dev_ids, test_ids = train_test_split(
@@ -369,7 +373,7 @@ def prep_corpus_split(arg) -> int:
     dev_df = dev_test_df[dev_test_df['a_id'].isin(dev_ids)]
     test_df = dev_test_df[dev_test_df['a_id'].isin(test_ids)]
 
-    logger.info('Done with train_test_split 2.')
+    logger.info('Done with train dev test split.')
 
     # Convert back to DataFrame for easier manipulation
     if lrp_df is not None:
@@ -379,12 +383,31 @@ def prep_corpus_split(arg) -> int:
         lrp_train_df.to_csv(os.path.join(arg.data_split_dir, f'lrp_{arg.collection}_train.csv'), index=False)
         lrp_dev_df.to_csv(os.path.join(arg.data_split_dir, f'lrp_{arg.collection}_dev.csv'), index=False)
         lrp_test_df.to_csv(os.path.join(arg.data_split_dir, f'lrp_{arg.collection}_test.csv'), index=False)
+        logger.info(
+            'Number of samples: %s/%s/%s', lrp_train_df.shape[0], lrp_dev_df.shape[0], lrp_test_df.shape[0]
+        )
 
     # Save the splits to CSV files
     train_df.to_csv(os.path.join(arg.data_split_dir, f'{arg.collection}_train.csv'), index=False)
     dev_df.to_csv(os.path.join(arg.data_split_dir, f'{arg.collection}_dev.csv'), index=False)
     test_df.to_csv(os.path.join(arg.data_split_dir, f'{arg.collection}_test.csv'), index=False)
+    logger.info('Number of samples: %s/%s/%s', train_df.shape[0], dev_df.shape[0], test_df.shape[0])
 
+    all_labels = []
+    for tags in data_df['label']:
+        all_labels.extend(tags)
+    # Count the occurrences of each tag
+    label_counts = Counter(all_labels)
+    # Construct the tag counts dataframe
+    label_dict = {'label': [], 'count': []}
+    for label, count in label_counts.items():
+        label_dict['label'].append(label)
+        label_dict['count'].append(count)
+
+    labels_df = pd.DataFrame(label_dict).sort_values('label', ascending=True)
+
+    logger.info('Number of labels: %s', labels_df.shape[0])
+    labels_df.to_csv(os.path.join(arg.data_split_dir, f'{arg.collection}_labels.csv'), index=False)
     return 0
 
 
