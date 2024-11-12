@@ -258,12 +258,6 @@ def es_dedup(arg) -> int:
 # noinspection DuplicatedCode
 def es_test_bge_m3(arg) -> int:
     """
-    ./mulabel es test_bge_m3 -c lrp_mulabel
-    ./mulabel es test_bge_m3 -c lrp_mulabel -l sl,sr
-
-    ./mulabel es test_bge_m3 -c lrp_mulabel -l sl --public
-    ./mulabel es test_bge_m3 -c lrp_mulabel -l sl --public
-
     ./mulabel es test_bge_m3 -c mulabel -l sl
     ./mulabel es test_bge_m3 -c mulabel -l sl --public
     ./mulabel es test_bge_m3 -c mulabel -l sl --public --seed_only
@@ -295,7 +289,7 @@ def es_test_bge_m3(arg) -> int:
     labeler = MultilabelLabeler(all_labels)
     labeler.fit()
 
-    state = {'doc': {}}
+    state = {'doc': {}, 'count': 0}
     y_true = []
     y_pred = []
     client = Elasticsearch(CLIENT_URL)
@@ -307,15 +301,18 @@ def es_test_bge_m3(arg) -> int:
         def on_similar(data_item: Dict[str, Any], score: float) -> bool:
             y_pred.append(labeler.vectorize([data_item['label']])[0])
             y_true.append(labeler.vectorize([state['doc']["label"]])[0])
-            return True
+            return False
 
         for data_item in tqdm(data_as_dicts, desc='Processing zero shot complete eval.'):
             for model_name, model in models.items():
                 data_item['m_' + model_name] = model(data_item['text'])[0].tolist()
             state['doc'] = data_item
+            state['count'] += 1
             num_ret = find_similar(
                 client, train_coll_name, data_item['a_uuid'], data_item['m_bge_m3'], on_similar
             )
+            #if state['count'] == 100:
+            #    break
             if num_ret == 0:
                 y_pred.append(labeler.vectorize([[]])[0])
 
@@ -323,9 +320,10 @@ def es_test_bge_m3(arg) -> int:
         client.close()
 
     average_type = 'micro'
+    logger.info(f'True dimensions [{len(y_true)},{len(y_true[0])}] pred [{len(y_pred)},{len(y_pred[0])}]')
     p = precision_score(y_true, y_pred, average=average_type)
     r = recall_score(y_true, y_pred, average=average_type)
     f1 = f1_score(y_true, y_pred, average=average_type)
-    print(f'Precision:{p}\nRecall:{r}\nF1:{f1}')
+    logger.info(f'Precision:{p}\nRecall:{r}\nF1:{f1}')
 
     return 0
