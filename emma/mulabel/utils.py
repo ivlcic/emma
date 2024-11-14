@@ -19,6 +19,7 @@ __supported_languages = [
 def compute_arg_collection_name(arg):
     arg.collection_conf = arg.collection
     if 'lang' in arg and arg.lang:
+        arg.lang_conf = arg.lang
         arg.lang = arg.lang.split(',')
         not_in_languages = [lang for lang in arg.lang if lang not in __supported_languages]
         if not_in_languages:
@@ -26,6 +27,7 @@ def compute_arg_collection_name(arg):
         arg.collection = arg.collection + '_' + '_'.join(arg.lang)
     else:
         arg.lang = __supported_languages
+        arg.lang_conf = 'all'
         arg.collection = arg.collection + '_all'
     if 'public' in arg:
         arg.collection = arg.collection + '_p' + ('1' if arg.public else '0')

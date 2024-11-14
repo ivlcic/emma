@@ -10,9 +10,9 @@ from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
 
 from FlagEmbedding import BGEM3FlagModel
-from sklearn.metrics import precision_score, recall_score, f1_score
 from tqdm import tqdm
 
+from ...core.metrics import Metrics
 from ...core.labels import MultilabelLabeler
 from ...core.args import CommonArguments
 from ..tokenizer import get_segmenter
@@ -255,6 +255,38 @@ def es_dedup(arg) -> int:
     return 0
 
 
+def init_task(args, name):
+    tags = [
+        args.collection_conf, args.ptm_name, args.collection
+    ]
+    if 'lang_conf' in args and args.lang_conf:
+        tags.extend(args.lang_conf.split(','))
+    if args.public:
+        tags.append('public')
+    if args.seed_only:
+        tags.append('seed_labels')
+
+    api_key = os.getenv('WANDB_API_KEY')
+    if api_key is None:
+        return None
+    import wandb
+    wandb.login('never', api_key)
+    run = wandb.init(
+        'retrieval_test',
+        project=os.getenv('WANDB_PROJECT'),
+        name=name,
+        id=name + '_' + args.ptm_name,
+        group=args.collection_conf,
+        tags=tags,
+        config={
+            'ptm_alias': args.ptm_name,
+            'lang': args.lang_conf,
+            'corpus': args.collection
+        }
+    )
+    return run
+
+
 # noinspection DuplicatedCode
 def es_test_bge_m3(arg) -> int:
     """
@@ -263,8 +295,11 @@ def es_test_bge_m3(arg) -> int:
     ./mulabel es test_bge_m3 -c mulabel -l sl --public --seed_only
     """
     os.environ['HF_HOME'] = arg.tmp_dir  # local tmp dir
-
     compute_arg_collection_name(arg)
+    output_name = 'zshot_' + arg.collection
+    arg.ptm_name = 'bge-m3'
+    run = init_task(arg, output_name)
+
     tokenizers = {}
     for lang in arg.lang:
         tokenizers[lang] = get_segmenter(lang, arg.tmp_dir)
@@ -289,6 +324,8 @@ def es_test_bge_m3(arg) -> int:
     labeler = MultilabelLabeler(all_labels)
     labeler.fit()
 
+    metrics = Metrics('zshot_' + arg.collection, labeler.get_type_code())
+
     state = {'doc': {}, 'count': 0}
     y_true = []
     y_pred = []
@@ -311,19 +348,15 @@ def es_test_bge_m3(arg) -> int:
             num_ret = find_similar(
                 client, train_coll_name, data_item['a_uuid'], data_item['m_bge_m3'], on_similar
             )
-            #if state['count'] == 100:
-            #    break
             if num_ret == 0:
                 y_pred.append(labeler.vectorize([[]])[0])
 
     finally:
         client.close()
 
-    average_type = 'micro'
-    logger.info(f'True dimensions [{len(y_true)},{len(y_true[0])}] pred [{len(y_pred)},{len(y_pred[0])}]')
-    p = precision_score(y_true, y_pred, average=average_type)
-    r = recall_score(y_true, y_pred, average=average_type)
-    f1 = f1_score(y_true, y_pred, average=average_type)
-    logger.info(f'Precision:{p}\nRecall:{r}\nF1:{f1}')
+    m = metrics(y_true, y_pred)
+    metrics.dump(str(os.path.join(arg.data_out_dir, output_name)), None)
+    if run is not None:
+        run.log(m)
 
     return 0

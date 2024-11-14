@@ -54,9 +54,9 @@ def load_data(client: Elasticsearch, collection: str, start_date: datetime, end_
 
 
 def find_similar(client: Elasticsearch, collection: str, uuid: str, vector: List[float],
-                 callback: Callable[[Dict[str, Any], float], bool]) -> int:
+                 callback: Callable[[Dict[str, Any], float], bool], size: int = 50) -> int:
     query = {
-        'size': 50,
+        'size': size,
         'query': {
             'bool': {
                 'must_not': [
@@ -70,7 +70,7 @@ def find_similar(client: Elasticsearch, collection: str, uuid: str, vector: List
                     'knn': {
                         'field': 'm_bge_m3',
                         'query_vector': vector,
-                        'k': 50
+                        'k': size
                     }
                 },
             }

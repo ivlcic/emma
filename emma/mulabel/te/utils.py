@@ -22,7 +22,9 @@ def _load_data(split_dir, corpus: str):
     for split in ['train', 'dev', 'test']:
         file_path = os.path.join(split_dir, corpus, split + '.csv')
         if not os.path.isfile(file_path):
-            continue
+            file_path = os.path.join(split_dir, corpus + f'_{split}.csv')
+            if not os.path.isfile(file_path):
+                continue
         data = pd.read_csv(file_path)
         if 'train' in split:  # do shuffle
             data = data.sample(frac=1).reset_index(drop=True)  # seed is set before
@@ -32,7 +34,7 @@ def _load_data(split_dir, corpus: str):
                 text_set[split] = data[col].tolist()
             if 'label' in col:
                 if ptypes.is_string_dtype(data[col]):
-                    value = data[col].iloc[0][1]
+                    value = data[col].iloc[0]
                     if value.startswith('['):
                         labeler = MultilabelLabeler()
                         data[col] = data[col].apply(lambda x: ast.literal_eval(x))
@@ -123,7 +125,7 @@ def _create_dataloader(module: Module, text_set, label_set, batch_size, num_work
 
 def _compute_output_name(args):
     scheduler_str = '_warmup' if args.scheduler else ''
-    output_model_name = args.model_name + '_' + args.corpus + '_x' + str(args.run_id) + '_b' + str(args.batch)
+    output_model_name = args.ptm_name + '_' + args.corpus + '_x' + str(args.run_id) + '_b' + str(args.batch)
     output_model_name += '_e' + str(args.epochs) + '_s' + str(args.seed) + '_lr' + str(args.lr)
     output_model_name += scheduler_str
     return output_model_name
