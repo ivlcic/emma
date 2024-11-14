@@ -5,6 +5,7 @@ from datetime import datetime
 from argparse import ArgumentParser
 from typing import Dict, Any, List
 
+import numpy as np
 import pandas as pd
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
@@ -31,6 +32,7 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
     CommonArguments.split_data_dir(module_name, parser, ('-i', '--data_in_dir'))
     CommonArguments.raw_data_dir(module_name, parser, ('-o', '--data_out_dir'))
     CommonArguments.tmp_dir(module_name, parser, ('-t', '--tmp_dir'))
+    CommonArguments.result_dir(module_name, parser, ('-r', '--data_result_dir'))
     parser.add_argument(
         '-c', '--collection', help='Collection to manage.', type=str, default='mulabel'
     )
@@ -55,6 +57,9 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
     parser.add_argument(
         '--passage_size', help='When calibrating use passage_size',
         type=int, default=1, choices=[1, 3, 5, 7, 9, 0]
+    )
+    parser.add_argument(
+        '--run_id', type=int, help=f'Run id for marking consecutive runs.', default=0
     )
 
 
@@ -275,7 +280,7 @@ def init_task(args, name):
         'retrieval_test',
         project=os.getenv('WANDB_PROJECT'),
         name=name,
-        id=name + '_' + args.ptm_name,
+        id=name + '_' + args.ptm_name + '@' + str(args.run_id),
         group=args.collection_conf,
         tags=tags,
         config={
@@ -348,14 +353,16 @@ def es_test_bge_m3(arg) -> int:
             num_ret = find_similar(
                 client, train_coll_name, data_item['a_uuid'], data_item['m_bge_m3'], on_similar
             )
+            if state['count'] > 100:
+                break
             if num_ret == 0:
                 y_pred.append(labeler.vectorize([[]])[0])
 
     finally:
         client.close()
 
-    m = metrics(y_true, y_pred)
-    metrics.dump(str(os.path.join(arg.data_out_dir, output_name)), None)
+    m = metrics(np.array(y_true, dtype=float), np.array(y_pred, dtype=float))
+    metrics.dump(arg.data_result_dir, None)
     if run is not None:
         run.log(m)
 
