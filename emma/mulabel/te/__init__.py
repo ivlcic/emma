@@ -78,7 +78,7 @@ def init_task(args) -> str:
         output_model_name = args.ckpt.split('--')[0]
 
     tags = [
-        args.lang_conf, args.ptm_name, args.corpus, f's{args.seed}', f'e{args.epochs}', f'e{args.batch}', f'lr{args.lr}'
+        args.ptm_name, args.corpus, f's{args.seed}', f'e{args.epochs}', f'e{args.batch}', f'lr{args.lr}'
     ]
     if args.public:
         tags.append('public')
