@@ -35,6 +35,8 @@ def _load_data(split_dir, corpus: str):
             if 'label' in col:
                 if ptypes.is_string_dtype(data[col]):
                     value = data[col].iloc[0]
+                    if value.startswith('[{'):
+                        continue
                     if value.startswith('['):
                         labeler = MultilabelLabeler()
                         data[col] = data[col].apply(lambda x: ast.literal_eval(x))
