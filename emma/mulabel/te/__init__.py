@@ -95,7 +95,7 @@ def init_task(args) -> str:
             name=output_model_name,
             id=output_model_name + '@' + str(args.run_id),
             group=args.collection_conf,
-            tags=','.join(tags),
+            tags=tags,
             config={
                 'ptm_alias': args.ptm_name,
                 'lang': args.lang_conf,
