@@ -13,9 +13,10 @@ from elasticsearch.helpers import bulk
 from FlagEmbedding import BGEM3FlagModel
 from tqdm import tqdm
 
-from ...core.metrics import Metrics
-from ...core.labels import MultilabelLabeler
 from ...core.args import CommonArguments
+from ...core.labels import MultilabelLabeler
+from ...core.metrics import Metrics
+from ...core.wandb import initialize_run
 from ..tokenizer import get_segmenter
 from ..utils import __supported_languages, compute_arg_collection_name, load_add_corpus_part
 from .utils import load_data, find_similar
@@ -260,7 +261,7 @@ def es_dedup(arg) -> int:
     return 0
 
 
-def init_task(args, name):
+def init_task(args, name) -> Any:
     tags = [
         args.collection_conf, args.ptm_name, args.collection
     ]
@@ -271,25 +272,19 @@ def init_task(args, name):
     if args.seed_only:
         tags.append('seed_labels')
 
-    api_key = os.getenv('WANDB_API_KEY')
-    if api_key is None:
-        return None
-    import wandb
-    wandb.login('never', api_key)
-    run = wandb.init(
-        'retrieval_test',
-        project=os.getenv('WANDB_PROJECT'),
-        name=name,
-        id=name + '_' + args.ptm_name + '@' + str(args.run_id),
-        group=args.collection_conf,
-        tags=tags,
-        config={
+    params = {
+        'job_type': 'retrieval_test',
+        'name': name,
+        'run_id': name + '_' + args.ptm_alias + '@' + str(args.run_id),
+        'run_group': args.collection_conf,
+        'tags': tags,
+        'conf': {
             'ptm_alias': args.ptm_name,
             'lang': args.lang_conf,
             'corpus': args.collection
         }
-    )
-    return run
+    }
+    return initialize_run(**params)
 
 
 # noinspection DuplicatedCode
@@ -302,19 +297,20 @@ def es_test_bge_m3(arg) -> int:
     os.environ['HF_HOME'] = arg.tmp_dir  # local tmp dir
     compute_arg_collection_name(arg)
     output_name = 'zshot_' + arg.collection
-    arg.ptm_name = 'bge-m3'
+    arg.ptm_alias = 'bge_m3'
+    arg.ptm_name = 'BAAI/bge-m3'
     run = init_task(arg, output_name)
 
     tokenizers = {}
     for lang in arg.lang:
         tokenizers[lang] = get_segmenter(lang, arg.tmp_dir)
-    bge_m3_model = BGEM3FlagModel('BAAI/bge-m3', use_fp16=True)
+    bge_m3_model = BGEM3FlagModel(arg.ptm_name, use_fp16=True)
 
     def bge_m3_embed(text_to_embed: str):
         return bge_m3_model.encode([text_to_embed])['dense_vecs']
 
     models = {
-        'bge_m3': bge_m3_embed
+        arg.ptm_alias: bge_m3_embed
     }
 
     train_coll_name = arg.collection + '_train'
@@ -351,10 +347,10 @@ def es_test_bge_m3(arg) -> int:
             state['doc'] = data_item
             state['count'] += 1
             num_ret = find_similar(
-                client, train_coll_name, data_item['a_uuid'], data_item['m_bge_m3'], on_similar
+                client, train_coll_name, data_item['a_uuid'], data_item[f'm_{arg.ptm_alias}'], on_similar
             )
-            #if state['count'] > 100:
-            #    break
+            if state['count'] > 100:
+                break
             if num_ret == 0:
                 y_pred.append(labeler.vectorize([[]])[0])
 
@@ -362,7 +358,7 @@ def es_test_bge_m3(arg) -> int:
         client.close()
 
     m = metrics(np.array(y_true, dtype=float), np.array(y_pred, dtype=float))
-    metrics.dump(arg.data_result_dir, None)
+    metrics.dump(arg.data_result_dir, None, run)
     if run is not None:
         run.log(m)
 

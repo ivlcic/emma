@@ -1,5 +1,7 @@
 import os
 import logging
+from typing import Any, Tuple
+
 import torch
 import random
 
@@ -11,9 +13,10 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification, PreT
 from lightning import seed_everything
 
 from ...core.dataset import TruncatedDataset
-from ...core.metrics import Metrics
 from ...core.args import CommonArguments
 from ...core.models import valid_model_names, model_name_map
+from ...core.metrics import Metrics
+from ...core.wandb import initialize_run
 from ..utils import __supported_languages, compute_arg_collection_name
 from .utils import _load_data, _compute_output_name
 
@@ -65,7 +68,7 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
     )
 
 
-def init_task(args) -> str:
+def init_task(args) -> Tuple[str, Any]:
     os.environ['HF_HOME'] = args.tmp_dir  # local tmp dir
     os.environ['WANDB_LOG_MODEL'] = 'end'
     os.environ['WANDB_WATCH'] = 'false'
@@ -85,29 +88,25 @@ def init_task(args) -> str:
     if args.seed_only:
         tags.append('seed_labels')
 
-    api_key = os.getenv('WANDB_API_KEY')
-    if api_key is not None:
-        import wandb
-        wandb.login('never', api_key)
-        wandb.init(
-            'encoder_train',
-            project=os.getenv('WANDB_PROJECT'),
-            name=output_model_name,
-            id=output_model_name + '@' + str(args.run_id),
-            group=args.collection_conf,
-            tags=tags,
-            config={
-                'ptm_alias': args.ptm_name,
-                'lang': args.lang_conf,
-                'corpus': args.corpus,
-                'seed': args.seed,
-                'epochs': args.epochs,
-                'batch': args.batch,
-                'learning_rate': args.lr
-            }
-        )
+    params = {
+        'job_type': 'encoder_train',
+        'name': output_model_name,
+        'run_id': output_model_name + '@' + str(args.run_id),
+        'run_group': args.collection_conf,
+        'tags': tags,
+        'conf': {
+            'ptm_alias': args.ptm_name,
+            'ptm': model_name_map[args.ptm_name],
+            'lang': args.lang_conf,
+            'corpus': args.corpus,
+            'seed': args.seed,
+            'epochs': args.epochs,
+            'batch': args.batch,
+            'learning_rate': args.lr
+        }
+    }
 
-    return output_model_name
+    return output_model_name, initialize_run(**params)
 
 
 # noinspection DuplicatedCode
@@ -125,7 +124,7 @@ def te_train(args) -> int:
     logger.debug('Starting training using seed [%s]', args.seed)
     seed_everything(args.seed, workers=True)
 
-    output_model_name = init_task(args)
+    output_model_name, run = init_task(args)
 
     logger.debug(f'Loading data from corpus [{args.corpus}]')
     text_set, label_set, labeler = _load_data(args.data_in_dir, args.corpus)
@@ -208,6 +207,6 @@ def te_train(args) -> int:
         f'batch size {args.batch}, lr:{args.lr} for {args.epochs} epochs.'
     )
     trainer.predict(datasets['test'])
-    metrics.dump(result_path, {'seed': args.seed})
+    metrics.dump(result_path, {'seed': args.seed}, run)
     # remove_checkpoint_dir(result_path)
     return 0

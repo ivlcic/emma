@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import ndcg_score, precision_score, recall_score, f1_score, accuracy_score, hamming_loss
 
+from .wandb import send_metrics
+
 
 class MetricsAtK:
 
@@ -96,13 +98,17 @@ class Metrics:
         self.log_epochs.append(metric)
         return metric
 
-    def dump(self, result_path: str, meta_data: Optional[Dict[str, Any]]):
-        pd.DataFrame(self.log_epochs).to_csv(os.path.join(result_path, self.model_name + '_metrics.csv'))
+    def dump(self, result_path: str, meta_data: Optional[Dict[str, Any]], task: Optional[Any] = None):
+        mdf = pd.DataFrame(self.log_epochs)
+        mdf_file = os.path.join(result_path, self.model_name + '_metrics.csv')
+        mdf.to_csv(mdf_file)
         if meta_data is None:
             meta_data = {}
         result = {'epochs': self.log_epochs, 'model_name': self.model_name} | meta_data
-        with open(os.path.join(result_path, self.model_name + '_metrics.json'), 'w', encoding='utf-8') as fp:
+        json_file = os.path.join(result_path, self.model_name + '_metrics.json')
+        with open(json_file, 'w', encoding='utf-8') as fp:
             json.dump(result, fp, ensure_ascii=False, indent=2, sort_keys=False)
+        send_metrics(task, self.model_name, [mdf_file, json_file])
 
 
 # noinspection DuplicatedCode
