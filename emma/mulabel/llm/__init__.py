@@ -10,8 +10,7 @@ from peft import get_peft_model, LoraConfig, TaskType
 
 from torch import Tensor, optim
 from torch.optim.lr_scheduler import StepLR
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, PreTrainedModel, PreTrainedTokenizer, \
-    TrainingArguments, Trainer, EvalPrediction, LlamaForCausalLM, BitsAndBytesConfig
+from transformers import AutoTokenizer, BitsAndBytesConfig, AutoModelForCausalLM
 from lightning import seed_everything
 
 from ...core.dataset import TruncatedDataset
@@ -70,6 +69,11 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
 
 
 def init_task(args) -> Tuple[str, Any]:
+    hf_token = os.getenv('HF_TOKEN')
+    if hf_token is not None:
+        from huggingface_hub import login
+        login(hf_token)
+
     os.environ['HF_HOME'] = args.tmp_dir  # local tmp dir
     os.environ['WANDB_LOG_MODEL'] = 'end'
     os.environ['WANDB_WATCH'] = 'false'
@@ -132,7 +136,7 @@ def llm_train(args) -> int:
     use_cuda = torch.cuda.is_available()
     device = torch.device('cuda' if use_cuda else 'cpu')
 
-    model = LlamaForCausalLM.from_pretrained(
+    model = AutoModelForCausalLM.from_pretrained(
         args.ptm_model_name,
         quantization_config=BitsAndBytesConfig(load_in_8bit=True),
         cache_dir=args.tmp_dir,
