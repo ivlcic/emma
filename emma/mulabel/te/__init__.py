@@ -81,7 +81,8 @@ def init_task(args) -> Tuple[str, Any]:
         output_model_name = args.ckpt.split('--')[0]
 
     tags = [
-        args.ptm_name, args.corpus, f's{args.seed}', f'e{args.epochs}', f'e{args.batch}', f'lr{args.lr}'
+        args.ptm_name, model_name_map[args.ptm_name], args.collection_conf, args.corpus,
+        f's{args.seed}', f'e{args.epochs}', f'e{args.batch}', f'lr{args.lr}'
     ]
     if args.public:
         tags.append('public')

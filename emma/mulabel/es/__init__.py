@@ -349,8 +349,8 @@ def es_test_bge_m3(arg) -> int:
             num_ret = find_similar(
                 client, train_coll_name, data_item['a_uuid'], data_item[f'm_{arg.ptm_alias}'], on_similar
             )
-            if state['count'] > 100:
-                break
+            # if state['count'] > 100:
+            #    break
             if num_ret == 0:
                 y_pred.append(labeler.vectorize([[]])[0])
 

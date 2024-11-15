@@ -8,4 +8,5 @@ tmp
 result
 tb_logs
 .log
+.vai.sh
 /.env
