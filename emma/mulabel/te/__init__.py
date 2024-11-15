@@ -113,8 +113,10 @@ def init_task(args) -> Tuple[str, Any]:
 def te_train(args) -> int:
     """
     Train transformer encoder models
-    ./mulabel te train --batch 8 --epochs 20 --lr 5e-5 --run_id 1 --ptm_name bertmc -c eurlex
-    ./mulabel te train --batch 8 --epochs 20 --lr 5e-5 --run_id 1 --ptm_name xlmrb -c eurlex
+    ./mulabel te train --batch 16 --epochs 30 --lr 3e-5 \
+       --ptm_name xlmrb -c eurlex --num_workers 4 --seed 7681 --run_id 1
+    ./mulabel te train --batch 16 --epochs 30 --lr 3e-5 \
+       --ptm_name xlmrb -c mulabel -l sl --public --num_workers 4 --seed 4823 --run_id 1
     """
 
     # https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html#torch.set_float32_matmul_precision
@@ -183,7 +185,7 @@ def te_train(args) -> int:
     trainer = Trainer(
         model=model,
         args=training_args,
-        train_dataset=datasets['train'],
+        train_dataset=datasets['test'],
         eval_dataset=datasets['dev'],
         compute_metrics=compute_metrics,
         preprocess_logits_for_metrics=preprocess_logits_for_metrics

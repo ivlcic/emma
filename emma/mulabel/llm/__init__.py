@@ -6,8 +6,10 @@ import torch
 import random
 
 from argparse import ArgumentParser
+from peft import get_peft_model, LoraConfig, TaskType
 
-from torch import Tensor
+from torch import Tensor, optim
+from torch.optim.lr_scheduler import StepLR
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, PreTrainedModel, PreTrainedTokenizer, \
     TrainingArguments, Trainer, EvalPrediction, LlamaForCausalLM, BitsAndBytesConfig
 from lightning import seed_everything
@@ -111,11 +113,10 @@ def init_task(args) -> Tuple[str, Any]:
 
 
 # noinspection DuplicatedCode
-def llama_train(args) -> int:
+def llm_train(args) -> int:
     """
-    Train llama decoder models
-    ./mulabel llama train --batch 8 --epochs 20 --lr 5e-5 --run_id 1 --ptm_name bertmc -c eurlex
-    ./mulabel llama train --batch 8 --epochs 20 --lr 5e-5 --run_id 1 --ptm_name xlmrb -c eurlex
+    Train llm decoder models
+    ./mulabel llm train --batch 8 --epochs 20 --lr 1e-4 --run_id 1 --ptm_name llama3b -c eurlex
     """
     if args.seed is None:
         args.seed = random.randint(1000, 9999)
@@ -158,6 +159,17 @@ def llama_train(args) -> int:
         logger.warning("Resizing the embedding matrix to match the tokenizer vocab size.")
         model.resize_token_embeddings(len(tokenizer))
 
+    peft_config = LoraConfig(
+        task_type=TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.05,
+        target_modules=["q_proj", "v_proj"], bias='none'
+    )
+    model = get_peft_model(model, peft_config)
+    if run:
+        run.config.update(peft_config)
+    model.print_trainable_parameters()
+
+    model.to(device)
+
     datasets = {}
     average_labels_per_sample = 0
     for split in ['dev', 'test', 'train']:
@@ -167,6 +179,13 @@ def llama_train(args) -> int:
         average_labels_per_sample += datasets[split].average_labels
     average_labels_per_sample /= 3
     avg_k = round(average_labels_per_sample)
+
+    optimizer = optim.AdamW(
+        model.parameters(),
+        lr=args.lr,
+        weight_decay=0.0,
+    )
+    scheduler = StepLR(optimizer, step_size=1, gamma=0.85)
 
     logger.info(f'Loaded train[{len(text_set["train"])}] dev[{len(text_set["dev"])}] test[{len(text_set["test"])}]')
     logger.info(f'Loaded {labeler} with {labeler.num_labels}')

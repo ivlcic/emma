@@ -9,6 +9,7 @@ MODULE_DESCRIPTOR = ModuleDescriptor(
         CommandArguments('prep', 'Prepares the data', multi_action=True),
         CommandArguments('es', 'Elasticsearch database tasks.', multi_action=True),
         CommandArguments('te', 'Transformer encoder tasks', multi_action=True),
+        CommandArguments('llm', 'LLM tasks', multi_action=True),
         #CommandArguments('split', 'Splits the data'),
         #CommandArguments('train', 'Trains the model'),
         #CommandArguments('test', 'Unit test the model'),
