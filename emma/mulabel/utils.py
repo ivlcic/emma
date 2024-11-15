@@ -2,11 +2,13 @@ import ast
 import os
 import csv
 import logging
+import pandas as pd
+import pandas.api.types as ptypes
 
 from typing import List, Dict, Any, Callable, Tuple, Optional
 
-import pandas as pd
-import pandas.api.types as ptypes
+from ..core.dataset import TruncatedDataset
+from ..core.labels import Labeler, BinaryLabeler, MultilabelLabeler, MulticlassLabeler
 
 logger = logging.getLogger('mulabel.utils')
 
@@ -282,3 +284,73 @@ def load_add_corpus_part(f_name: str, l_col: str, data_df: Optional[pd.DataFrame
     if isinstance(data_df, pd.DataFrame) is not None:
         return pd.concat([data_df, temp_df])
     return temp_df
+
+
+def compute_model_output_name(args):
+    scheduler_str = '_warmup' if args.scheduler else ''
+    output_model_name = args.ptm_name + '_' + args.corpus + '_x' + str(args.run_id) + '_b' + str(args.batch)
+    output_model_name += '_e' + str(args.epochs) + '_s' + str(args.seed) + '_lr' + str(args.lr)
+    output_model_name += scheduler_str
+    return output_model_name
+
+
+def load_train_data(split_dir, corpus: str):
+    text_set = {}
+    label_set = {}
+
+    labeler: Labeler = BinaryLabeler()
+    for split in ['train', 'dev', 'test']:
+        file_path = os.path.join(split_dir, corpus, split + '.csv')
+        if not os.path.isfile(file_path):
+            file_path = os.path.join(split_dir, corpus + f'_{split}.csv')
+            if not os.path.isfile(file_path):
+                continue
+        data = pd.read_csv(file_path)
+        if 'train' in split:  # do shuffle
+            data = data.sample(frac=1).reset_index(drop=True)  # seed is set before
+        column_names = data.columns.tolist()
+        for col in column_names:
+            if 'text' in col:
+                text_set[split] = data[col].tolist()
+            if 'label' in col:
+                if ptypes.is_string_dtype(data[col]):
+                    value = data[col].iloc[0]
+                    if value.startswith('[{'):
+                        continue
+                    if value.startswith('['):
+                        labeler = MultilabelLabeler()
+                        data[col] = data[col].apply(lambda x: ast.literal_eval(x))
+                if col.startswith('ml_'):
+                    labeler = MultilabelLabeler()
+                    data['ml_label'] = data['ml_label'].apply(lambda x: ast.literal_eval(x))
+                if col.startswith('mc_'):
+                    labeler = MulticlassLabeler()
+                label_set[split] = data[col].tolist()
+
+    l_file_path = os.path.join(split_dir, f'{corpus}_labels.csv')
+    if os.path.exists(l_file_path):
+        with open(l_file_path, 'r') as l_file:
+            all_labels = [line.split(',')[0].strip() for line in l_file]
+            if all_labels[0] == 'label':
+                all_labels.pop(0)
+            labeler.collect(all_labels)
+    else:
+        for split in ['train', 'dev', 'test']:
+            labeler.collect(label_set[split])
+    labeler.fit()
+    for split in ['train', 'dev', 'test']:
+        label_set[split] = labeler.vectorize(label_set[split])
+    return text_set, label_set, labeler
+
+
+def construct_datasets(text_set, label_set, tokenizer, max_len: int = 512) -> Tuple[Dict[str, TruncatedDataset], int]:
+    datasets = {}
+    average_labels_per_sample = 0
+    for split in ['dev', 'test', 'train']:
+        if split not in text_set.keys():
+            continue
+        datasets[split] = TruncatedDataset(text_set[split], label_set[split], tokenizer, max_len)
+        average_labels_per_sample += datasets[split].average_labels
+    average_labels_per_sample /= 3
+    avg_k = round(average_labels_per_sample)
+    return datasets, avg_k

@@ -27,6 +27,10 @@ model_name_map = {
     'longformer': 'allenai/longformer-base-4096'
 }
 
+llm_model_name_map = {
+    'llama3b': 'meta-llama/Llama-3.2-3B'
+}
+
 
 class Module(torch.nn.Module):
 
