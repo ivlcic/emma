@@ -31,29 +31,6 @@ __peft_confs = {
 }
 
 
-def __apply_peft(model_alias: str, model: PreTrainedModel, run: Any) -> Union[PreTrainedModel, PeftModel]:
-    if model_alias not in __peft_confs:
-        return model
-
-    peft_config = __peft_confs[model_alias]
-    peft_model = get_peft_model(model, peft_config)
-    if run is not None:
-        run.config.update(peft_config)
-    peft_model.print_trainable_parameters()
-
-    return peft_model
-
-
-def __get_optimizers(model_alias: str, model: PreTrainedModel, learning_rate: float) \
-        -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR]:
-    if 'llama' in model_alias:
-        optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.0)
-        scheduler = StepLR(optimizer, step_size=1, gamma=0.85)
-        return optimizer, scheduler
-
-    return None, None
-
-
 # noinspection DuplicatedCode
 def add_args(module_name: str, parser: ArgumentParser) -> None:
     CommonArguments.split_data_dir(module_name, parser, ('-i', '--data_in_dir'))
@@ -145,6 +122,29 @@ def init_task(args) -> Tuple[str, Any]:
     }
 
     return output_model_name, initialize_run(**params)
+
+
+def __apply_peft(model_alias: str, model: PreTrainedModel, run: Any) -> Union[PreTrainedModel, PeftModel]:
+    if model_alias not in __peft_confs:
+        return model
+
+    peft_config = __peft_confs[model_alias]
+    peft_model = get_peft_model(model, peft_config)
+    if run is not None:
+        run.config.update(peft_config)
+    peft_model.print_trainable_parameters()
+
+    return peft_model
+
+
+def __get_optimizers(model_alias: str, model: PreTrainedModel, learning_rate: float) \
+        -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR]:
+    if 'llama' in model_alias:
+        optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.0)
+        scheduler = StepLR(optimizer, step_size=1, gamma=0.85)
+        return optimizer, scheduler
+
+    return None, None
 
 
 # noinspection DuplicatedCode
