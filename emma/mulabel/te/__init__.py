@@ -185,7 +185,7 @@ def te_train(args) -> int:
     trainer = Trainer(
         model=model,
         args=training_args,
-        train_dataset=datasets['test'],
+        train_dataset=datasets['train'],
         eval_dataset=datasets['dev'],
         compute_metrics=compute_metrics,
         preprocess_logits_for_metrics=preprocess_logits_for_metrics

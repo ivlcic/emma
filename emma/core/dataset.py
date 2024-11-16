@@ -28,7 +28,7 @@ class TruncatedDataset(Dataset):
             text=text,
             text_pair=None,
             add_special_tokens=True,
-            max_length=self.max_len,
+            max_length=self.max_len if self.max_len > 0 else None,
             truncation=True,
             padding='max_length',
             return_token_type_ids=True
