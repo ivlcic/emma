@@ -250,7 +250,8 @@ def llm_train(args) -> int:
         device_map=(
             "auto"
         ),
-        torch_dtype=torch.bfloat16,
+        #  torch_dtype=torch.bfloat16,
+        torch_dtype=torch.float16,
         problem_type='multi_label_classification' if 'multilabel' == labeler.get_type_code()
         else 'single_label_classification'
     )
