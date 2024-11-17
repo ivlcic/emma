@@ -128,8 +128,8 @@ def __apply_peft(model_alias: str, model: PreTrainedModel, run: Any) -> Union[Pr
     if model_alias not in __peft_confs:
         logger.warning(f'No PEFT config for [{model_alias}]')
         return model
-    logger.info(f'Using peft config [{model_alias}] {__peft_confs}')
     peft_config = __peft_confs[model_alias]
+    logger.info(f'Using peft config [{model_alias}] {peft_config}')
     peft_model = get_peft_model(model, peft_config)
     if run is not None:
         run.config.update(peft_config)
