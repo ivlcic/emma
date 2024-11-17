@@ -126,8 +126,9 @@ def init_task(args) -> Tuple[str, Any]:
 
 def __apply_peft(model_alias: str, model: PreTrainedModel, run: Any) -> Union[PreTrainedModel, PeftModel]:
     if model_alias not in __peft_confs:
+        logger.warning(f'No PEFT config for [{model_alias}]')
         return model
-
+    logger.info(f'Using peft config [{model_alias}] {__peft_confs}')
     peft_config = __peft_confs[model_alias]
     peft_model = get_peft_model(model, peft_config)
     if run is not None:
