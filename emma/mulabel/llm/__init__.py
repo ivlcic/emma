@@ -306,7 +306,8 @@ def llm_train(args) -> int:
         logging_strategy='epoch',
         logging_steps=1,
         run_name=output_model_name,
-        metric_for_best_model='micro.f1'
+        metric_for_best_model='micro.f1',
+        gradient_accumulation_steps=1
     )
 
     trainer = Trainer(
