@@ -241,6 +241,13 @@ def llm_train(args) -> int:
     use_cuda = torch.cuda.is_available()
     device = torch.device('cuda' if use_cuda else 'cpu')
 
+    # Load the tokenizer and add special tokens
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.ptm_model_name
+    )
+    if not tokenizer.pad_token_id:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+
     model: PreTrainedModel = AutoModelForSequenceClassification.from_pretrained(
         args.ptm_model_name, cache_dir=args.tmp_dir, num_labels=labeler.num_labels,
         id2label=labeler.ids_to_labels(), label2id=labeler.labels_to_ids(),
@@ -252,16 +259,10 @@ def llm_train(args) -> int:
         ),
         #  torch_dtype=torch.bfloat16,
         torch_dtype=torch.float16,
+        pad_token_id=tokenizer.pad_token_id,
         problem_type='multi_label_classification' if 'multilabel' == labeler.get_type_code()
         else 'single_label_classification'
     )
-
-    # Load the tokenizer and add special tokens
-    tokenizer = AutoTokenizer.from_pretrained(
-        args.ptm_model_name
-    )
-    if not tokenizer.pad_token_id:
-        tokenizer.pad_token_id = tokenizer.eos_token_id
 
     # If there is a mismatch between tokenizer vocab size and embedding matrix,
     # throw a warning and then expand the embedding matrix
