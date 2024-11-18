@@ -270,7 +270,7 @@ def llm_train(args) -> int:
         logger.warning("Resizing the embedding matrix to match the tokenizer vocab size.")
         model.resize_token_embeddings(len(tokenizer))
 
-    datasets, avg_k = construct_datasets(text_set, label_set, tokenizer, 2048)
+    datasets, avg_k = construct_datasets(text_set, label_set, tokenizer, 4096)
 
     model = __apply_peft(args.ptm_name, model, run)
     model.to(device)
