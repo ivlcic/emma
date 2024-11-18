@@ -17,7 +17,7 @@ from ...core.models import valid_model_names, model_name_map
 from ...core.metrics import Metrics
 from ...core.wandb import initialize_run
 from ..utils import __supported_languages, compute_arg_collection_name, compute_model_output_name, load_train_data, \
-    construct_datasets, CustomTrainer
+    construct_datasets
 
 logger = logging.getLogger('mulabel.te_train')
 
@@ -182,7 +182,7 @@ def te_train(args) -> int:
         metric_for_best_model='micro.f1'
     )
 
-    trainer = CustomTrainer(
+    trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=datasets['train'],

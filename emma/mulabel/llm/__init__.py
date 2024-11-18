@@ -11,7 +11,7 @@ from peft import get_peft_model, LoraConfig, TaskType, PeftModel
 from torch import Tensor, optim
 from torch.optim.lr_scheduler import StepLR
 from transformers import AutoTokenizer, BitsAndBytesConfig, AutoModelForSequenceClassification, \
-    PreTrainedModel, EvalPrediction, TrainingArguments
+    PreTrainedModel, EvalPrediction, TrainingArguments, Trainer
 from lightning import seed_everything
 
 from ...core.args import CommonArguments
@@ -19,7 +19,7 @@ from ...core.models import llm_model_name_map
 from ...core.metrics import Metrics
 from ...core.wandb import initialize_run
 from ..utils import __supported_languages, compute_arg_collection_name, compute_model_output_name, load_train_data, \
-    construct_datasets, CustomTrainer
+    construct_datasets
 
 logger = logging.getLogger('mulabel.llm_train')
 
@@ -252,7 +252,7 @@ def llm_train(args) -> int:
         gradient_accumulation_steps=args.grad_acc if 'grad_acc' in args and args.grad_acc > 0 else None
     )
 
-    trainer = CustomTrainer(
+    trainer = Trainer(
         model=model,
         # optimizers=(__get_optimizers(args.ptm_name, model, args.lr)),
         args=training_args,
