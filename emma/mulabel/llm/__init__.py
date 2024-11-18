@@ -245,7 +245,7 @@ def llm_train(args) -> int:
         args.ptm_model_name, cache_dir=args.tmp_dir, num_labels=labeler.num_labels,
         id2label=labeler.ids_to_labels(), label2id=labeler.labels_to_ids(),
         quantization_config=BitsAndBytesConfig(load_in_8bit=True),
-        use_cache=None,
+        use_cache=False,
         attn_implementation="sdpa",  # can be None; sdpa: use Flash Attention and Xformer memory-efficient kernels
         device_map=(
             "auto"
@@ -269,7 +269,7 @@ def llm_train(args) -> int:
         logger.warning("Resizing the embedding matrix to match the tokenizer vocab size.")
         model.resize_token_embeddings(len(tokenizer))
 
-    datasets, avg_k = construct_datasets(text_set, label_set, tokenizer, 4096)
+    datasets, avg_k = construct_datasets(text_set, label_set, tokenizer, 2048)
 
     model = __apply_peft(args.ptm_name, model, run)
     model.to(device)
@@ -308,14 +308,14 @@ def llm_train(args) -> int:
         logging_steps=1,
         run_name=output_model_name,
         metric_for_best_model='micro.f1',
-        gradient_accumulation_steps=1
+        gradient_accumulation_steps=4
     )
 
     trainer = Trainer(
         model=model,
         optimizers=(__get_optimizers(args.ptm_name, model, args.lr)),
         args=training_args,
-        train_dataset=datasets['test'],
+        train_dataset=datasets['train'],
         eval_dataset=datasets['dev'],
         compute_metrics=compute_metrics,
         preprocess_logits_for_metrics=preprocess_logits_for_metrics
