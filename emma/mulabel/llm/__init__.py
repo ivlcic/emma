@@ -70,6 +70,9 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
         '--run_id', type=int, help=f'Run id for marking consecutive runs.', default=0
     )
     parser.add_argument(
+        '--seq_len', type=int, help=f'Maximum sequence len.', default=1024
+    )
+    parser.add_argument(
         '--ckpt', type=str,
         help='Path to a saved ckpt for continued training or evaluation'
              'e.g. bert_hyperpartisan_b8_e20_s3456_lr3e-05--epoch=17.ckpt'
@@ -195,7 +198,7 @@ def llm_train_raw(args) -> int:
         logger.warning("Resizing the embedding matrix to match the tokenizer vocab size.")
         model.resize_token_embeddings(len(tokenizer))
 
-    datasets, avg_k = construct_datasets(text_set, label_set, tokenizer, 512)
+    datasets, avg_k = construct_datasets(text_set, label_set, tokenizer, args.seq_len)
 
     peft_config = LoraConfig(
         task_type=TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.05,
@@ -270,7 +273,7 @@ def llm_train(args) -> int:
         logger.warning("Resizing the embedding matrix to match the tokenizer vocab size.")
         model.resize_token_embeddings(len(tokenizer))
 
-    datasets, avg_k = construct_datasets(text_set, label_set, tokenizer, 4096)
+    datasets, avg_k = construct_datasets(text_set, label_set, tokenizer, arg.seq_len)
 
     model = __apply_peft(args.ptm_name, model, run)
     model.to(device)
