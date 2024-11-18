@@ -7,6 +7,10 @@ import pandas.api.types as ptypes
 
 from typing import List, Dict, Any, Callable, Tuple, Optional
 
+import torch
+from torch.utils.data import DataLoader
+from transformers import Trainer
+
 from ..core.dataset import TruncatedDataset
 from ..core.labels import Labeler, BinaryLabeler, MultilabelLabeler, MulticlassLabeler
 
@@ -290,6 +294,10 @@ def compute_model_output_name(args):
     scheduler_str = '_warmup' if args.scheduler else ''
     output_model_name = args.ptm_name + '_' + args.corpus + '_x' + str(args.run_id) + '_b' + str(args.batch)
     output_model_name += '_e' + str(args.epochs) + '_s' + str(args.seed) + '_lr' + str(args.lr)
+    if 'seq_len' in args and args.seq_len > 0:
+        output_model_name += f'l{args.seq_len}'
+    if 'grad_acc' in args and args.grad_acc > 0:
+        output_model_name += f'ga{args.grad_acc}'
     output_model_name += scheduler_str
     return output_model_name
 
@@ -354,3 +362,21 @@ def construct_datasets(text_set, label_set, tokenizer, max_len: int = 512) -> Tu
     average_labels_per_sample /= 3
     avg_k = round(average_labels_per_sample)
     return datasets, avg_k
+
+
+class CustomTrainer(Trainer):
+
+    def get_train_dataloader(self) -> DataLoader:
+        dataloader_params = {
+            "batch_size": self._train_batch_size,
+            "num_workers": self.args.dataloader_num_workers,
+            "pin_memory": self.args.dataloader_pin_memory,
+            "persistent_workers": self.args.dataloader_persistent_workers,
+        }
+
+        if not isinstance(self.train_dataset, torch.utils.data.IterableDataset):
+            dataloader_params["sampler"] = self._get_train_sampler()
+            dataloader_params["drop_last"] = self.args.dataloader_drop_last
+            dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
+
+        return self.accelerator.prepare(DataLoader(self.train_dataset, shuffle=True, **dataloader_params))

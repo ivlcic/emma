@@ -28,6 +28,7 @@ model_name_map = {
 }
 
 llm_model_name_map = {
+    'llama1b': 'meta-llama/Llama-3.2-1B',
     'llama3b': 'meta-llama/Llama-3.2-3B'
 }
 

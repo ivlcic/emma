@@ -10,8 +10,8 @@ from peft import get_peft_model, LoraConfig, TaskType, PeftModel
 
 from torch import Tensor, optim
 from torch.optim.lr_scheduler import StepLR
-from transformers import AutoTokenizer, BitsAndBytesConfig, AutoModelForCausalLM, AutoModelForSequenceClassification, \
-    PreTrainedModel, EvalPrediction, TrainingArguments, Trainer
+from transformers import AutoTokenizer, BitsAndBytesConfig, AutoModelForSequenceClassification, \
+    PreTrainedModel, EvalPrediction, TrainingArguments
 from lightning import seed_everything
 
 from ...core.args import CommonArguments
@@ -19,14 +19,18 @@ from ...core.models import llm_model_name_map
 from ...core.metrics import Metrics
 from ...core.wandb import initialize_run
 from ..utils import __supported_languages, compute_arg_collection_name, compute_model_output_name, load_train_data, \
-    construct_datasets
+    construct_datasets, CustomTrainer
 
-logger = logging.getLogger('mulabel.te_train')
+logger = logging.getLogger('mulabel.llm_train')
 
 __peft_confs = {
     'llama3b': LoraConfig(
-        task_type=TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.05,
-        target_modules=["q_proj", "v_proj"], bias='none'
+        task_type=TaskType.SEQ_CLS, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.05,
+        bias='none', use_rslora=True
+    ),
+    'llama1b': LoraConfig(
+        task_type=TaskType.SEQ_CLS, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.05,
+        bias='none', use_rslora=True
     )
 }
 
@@ -70,7 +74,10 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
         '--run_id', type=int, help=f'Run id for marking consecutive runs.', default=0
     )
     parser.add_argument(
-        '--seq_len', type=int, help=f'Maximum sequence len.', default=1024
+        '--seq_len', type=int, help=f'Maximum sequence len.', default=-1
+    )
+    parser.add_argument(
+        '--grad_acc', type=int, help=f'Gradient accumulation steps.', default=-1
     )
     parser.add_argument(
         '--ckpt', type=str,
@@ -98,7 +105,8 @@ def init_task(args) -> Tuple[str, Any]:
 
     tags = [
         args.ptm_name, args.ptm_model_name, args.collection_conf, args.corpus,
-        f's{args.seed}', f'e{args.epochs}', f'e{args.batch}', f'lr{args.lr}'
+        f's{args.seed}', f'e{args.epochs}', f'e{args.batch}', f'lr{args.lr}',
+        f'l{args.seq_len}', f'gacc{args.grad_acc}'
     ]
     if args.public:
         tags.append('public')
@@ -152,79 +160,6 @@ def __get_optimizers(model_alias: str, model: PreTrainedModel, learning_rate: fl
 
 
 # noinspection DuplicatedCode
-def llm_train_raw(args) -> int:
-    """
-    Train llm decoder models
-    ./mulabel llm train --batch 8 --epochs 20 --lr 1e-4 --run_id 1 --ptm_name llama3b -c eurlex
-    """
-    if args.seed is None:
-        args.seed = random.randint(1000, 9999)
-    logger.debug('Starting training using seed [%s]', args.seed)
-    seed_everything(args.seed, workers=True)
-
-    output_model_name, run = init_task(args)
-
-    logger.debug(f'Loading data from corpus [{args.corpus}]')
-    text_set, label_set, labeler = load_train_data(args.data_in_dir, args.corpus)
-    logger.debug(f'Loaded data from corpus [{args.corpus}]')
-
-    use_cuda = torch.cuda.is_available()
-    device = torch.device('cuda' if use_cuda else 'cpu')
-
-    model = AutoModelForCausalLM.from_pretrained(
-        args.ptm_model_name,
-        quantization_config=BitsAndBytesConfig(load_in_8bit=True),
-        cache_dir=args.tmp_dir,
-        use_cache=None,
-        attn_implementation="sdpa",  # can be None; sdpa: use Flash Attention and Xformer memory-efficient kernels
-        device_map=(
-            "auto"
-        ),
-        torch_dtype=torch.bfloat16,
-    )
-
-    # model.to(device)
-
-    # Load the tokenizer and add special tokens
-    tokenizer = AutoTokenizer.from_pretrained(
-        args.ptm_model_name
-    )
-    if not tokenizer.pad_token_id:
-        tokenizer.pad_token_id = tokenizer.eos_token_id
-
-    # If there is a mismatch between tokenizer vocab size and embedding matrix,
-    # throw a warning and then expand the embedding matrix
-    if len(tokenizer) > model.get_input_embeddings().weight.shape[0]:
-        logger.warning("Resizing the embedding matrix to match the tokenizer vocab size.")
-        model.resize_token_embeddings(len(tokenizer))
-
-    datasets, avg_k = construct_datasets(text_set, label_set, tokenizer, args.seq_len)
-
-    peft_config = LoraConfig(
-        task_type=TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.05,
-        target_modules=["q_proj", "v_proj"], bias='none'
-    )
-    peft_model = get_peft_model(model, peft_config)
-    if run:
-        run.config.update(peft_config)
-    peft_model.print_trainable_parameters()
-
-    peft_model.to(device)
-
-    optimizer = optim.AdamW(
-        model.parameters(),
-        lr=args.lr,
-        weight_decay=0.0,
-    )
-    scheduler = StepLR(optimizer, step_size=1, gamma=0.85)
-
-    logger.info(f'Loaded train[{len(text_set["train"])}] dev[{len(text_set["dev"])}] test[{len(text_set["test"])}]')
-    logger.info(f'Loaded {labeler} with {labeler.num_labels}')
-
-    return 0
-
-
-# noinspection DuplicatedCode
 def llm_train(args) -> int:
     """
     Train llm decoder models
@@ -273,7 +208,9 @@ def llm_train(args) -> int:
         logger.warning("Resizing the embedding matrix to match the tokenizer vocab size.")
         model.resize_token_embeddings(len(tokenizer))
 
-    datasets, avg_k = construct_datasets(text_set, label_set, tokenizer, args.seq_len)
+    datasets, avg_k = construct_datasets(
+        text_set, label_set, tokenizer, args.seq_len if 'seq_len' in args and args.seq_len > 0 else None
+    )
 
     model = __apply_peft(args.ptm_name, model, run)
     model.to(device)
@@ -312,12 +249,12 @@ def llm_train(args) -> int:
         logging_steps=1,
         run_name=output_model_name,
         metric_for_best_model='micro.f1',
-        gradient_accumulation_steps=4
+        gradient_accumulation_steps=args.grad_acc if 'grad_acc' in args and args.grad_acc > 0 else None
     )
 
-    trainer = Trainer(
+    trainer = CustomTrainer(
         model=model,
-        optimizers=(__get_optimizers(args.ptm_name, model, args.lr)),
+        # optimizers=(__get_optimizers(args.ptm_name, model, args.lr)),
         args=training_args,
         train_dataset=datasets['train'],
         eval_dataset=datasets['dev'],
