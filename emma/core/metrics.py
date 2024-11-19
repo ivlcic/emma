@@ -93,9 +93,9 @@ class Metrics:
         metric[f'{prefix}acc'] = accuracy_score(y_true, y_pred)
         if self.prob_type == 'multilabel':
             for k in self.k_values:
-                metric = metric | MetricsAtK(y_true, y_prob, k).todict()
-            metric = metric | MetricsAtK(y_true, y_prob).todict()
-            metric['hamming_loss'] = hamming_loss(y_true, y_pred)
+                metric = metric | MetricsAtK(y_true, y_prob, k).todict(prefix)
+            metric = metric | MetricsAtK(y_true, y_prob).todict(prefix)
+            metric[f'{prefix}hamming_loss'] = hamming_loss(y_true, y_pred)
         self.log_epochs.append(metric)
         return metric
 
