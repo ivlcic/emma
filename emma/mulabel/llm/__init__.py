@@ -25,12 +25,12 @@ logger = logging.getLogger('mulabel.llm_train')
 
 __peft_confs = {
     'llama3b': LoraConfig(
-        task_type=TaskType.SEQ_CLS, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.05,
-        bias='none', use_rslora=True
+        task_type=TaskType.SEQ_CLS, inference_mode=False, r=16, lora_alpha=16, lora_dropout=0.05,
+        bias='none', use_rslora=True, target_modules=["q_proj", "k_proj"],
     ),
     'llama1b': LoraConfig(
-        task_type=TaskType.SEQ_CLS, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.05,
-        bias='none', use_rslora=True
+        task_type=TaskType.SEQ_CLS, inference_mode=False, r=16, lora_alpha=16, lora_dropout=0.05,
+        bias='none', use_rslora=True, target_modules=["q_proj", "k_proj"],
     )
 }
 
@@ -65,7 +65,7 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
         '--passage_size', help='When calibrating use passage_size',
         type=int, default=1, choices=[1, 3, 5, 7, 9, 0]
     )
-    CommonArguments.train(parser, batch=8, epochs=0, lr=3e-5, seed=None)
+    CommonArguments.train(parser, batch=4, epochs=1, lr=3e-5, seed=None)
     CommonArguments.num_workers(parser)
     parser.add_argument(
         '--ptm_name', type=str, required=True, help=f'Pretrained model name: {llm_model_name_map.keys()}'
@@ -199,7 +199,7 @@ def llm_train(args) -> int:
         device_map=(
             "auto"
         ),
-        #  torch_dtype=torch.bfloat16,
+        #torch_dtype=torch.bfloat16,
         torch_dtype=torch.float16,
         pad_token_id=tokenizer.pad_token_id,
         problem_type='multi_label_classification' if 'multilabel' == labeler.get_type_code()
@@ -251,6 +251,9 @@ def llm_train(args) -> int:
         save_total_limit=3,
         logging_strategy='epoch',
         logging_steps=1,
+        weight_decay=0.01,
+        fp16=True,
+        optim='adamw_8bit',
         run_name=output_model_name,
         metric_for_best_model='micro.f1',
         gradient_accumulation_steps=args.grad_acc if 'grad_acc' in args and args.grad_acc > 0 else None
