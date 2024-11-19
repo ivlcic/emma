@@ -357,7 +357,7 @@ def es_test_bge_m3(arg) -> int:
     finally:
         client.close()
 
-    m = metrics(np.array(y_true, dtype=float), np.array(y_pred, dtype=float))
+    m = metrics(np.array(y_true, dtype=float), np.array(y_pred, dtype=float), 'test_')
     metrics.dump(arg.data_result_dir, None, run)
     if run is not None:
         run.log(m)

@@ -23,6 +23,8 @@ class MetricsAtK:
         self.precisions = np.zeros(n_samples)
 
         for i in range(n_samples):
+            y_true[i][np.isnan(y_true[i])] = 0
+            y_prob[i][np.isnan(y_prob[i])] = 0
             # Total number of relevant items for this sample
             total_relevant = np.sum(y_true[i])
             if k is not None:
@@ -47,18 +49,18 @@ class MetricsAtK:
         self.mean_precision = np.mean(self.precisions)
         self.ndcg = ndcg_score(y_true, y_prob, k=self.k)
 
-    def todict(self) -> Dict[str, float]:
+    def todict(self, prefix: str = '') -> Dict[str, float]:
         result = {}
         if self.k is not None:
-            result[f'r-p@{self.k}'] = self.mean_r_precision
-            result[f'p@{self.k}'] = self.mean_precision
-            result[f'r@{self.k}'] = self.mean_recall
-            result[f'ndcg@{self.k}'] = self.ndcg
+            result[f'{prefix}r-p@{self.k}'] = self.mean_r_precision
+            result[f'{prefix}p@{self.k}'] = self.mean_precision
+            result[f'{prefix}r@{self.k}'] = self.mean_recall
+            result[f'{prefix}ndcg@{self.k}'] = self.ndcg
         else:
-            result[f'r-p@'] = self.mean_r_precision
-            result[f'p@'] = self.mean_precision
-            result[f'r@'] = self.mean_recall
-            result[f'ndcg'] = self.ndcg
+            result[f'{prefix}r-p@'] = self.mean_r_precision
+            result[f'{prefix}p@'] = self.mean_precision
+            result[f'{prefix}r@'] = self.mean_recall
+            result[f'{prefix}ndcg'] = self.ndcg
         return result
 
 
@@ -73,7 +75,7 @@ class Metrics:
         self.avg_k = avg_k
 
     # noinspection DuplicatedCode
-    def __call__(self, y_true, y_prob):
+    def __call__(self, y_true: np.ndarray, y_prob: np.ndarray, prefix: str = ''):
         if self.prob_type == 'multilabel':
             y_pred = (y_prob > 0.5).astype(np.float32)
         else:
@@ -85,11 +87,10 @@ class Metrics:
             p = precision_score(y_true, y_pred, average=average_type)
             r = recall_score(y_true, y_pred, average=average_type)
             f1 = f1_score(y_true, y_pred, average=average_type)
-            metric[f'{average_type}.f1'] = f1
-            metric[f'{average_type}.p'] = p
-            metric[f'{average_type}.r'] = r
-        metric['acc'] = accuracy_score(y_true, y_pred)
-        #metric['m_name'] = self.model_name
+            metric[f'{prefix}{average_type}.f1'] = f1
+            metric[f'{prefix}{average_type}.p'] = p
+            metric[f'{prefix}{average_type}.r'] = r
+        metric[f'{prefix}acc'] = accuracy_score(y_true, y_pred)
         if self.prob_type == 'multilabel':
             for k in self.k_values:
                 metric = metric | MetricsAtK(y_true, y_prob, k).todict()

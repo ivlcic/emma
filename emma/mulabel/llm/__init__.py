@@ -105,9 +105,13 @@ def init_task(args) -> Tuple[str, Any]:
 
     tags = [
         args.ptm_name, args.ptm_model_name, args.collection_conf, args.corpus,
-        f's{args.seed}', f'e{args.epochs}', f'e{args.batch}', f'lr{args.lr}',
-        f'l{args.seq_len}', f'gacc{args.grad_acc}'
+        f's{args.seed}', f'e{args.epochs}', f'e{args.batch}', f'lr{args.lr}'
     ]
+    if 'seq_len' in args and args.seq_len > 0:
+        tags.append(f'l{args.seq_len}')
+    if 'grad_acc' in args and args.grad_acc > 0:
+        tags.append(f'ga{args.grad_acc}')
+
     if args.public:
         tags.append('public')
     if args.seed_only:

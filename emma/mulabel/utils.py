@@ -295,9 +295,9 @@ def compute_model_output_name(args):
     output_model_name = args.ptm_name + '_' + args.corpus + '_x' + str(args.run_id) + '_b' + str(args.batch)
     output_model_name += '_e' + str(args.epochs) + '_s' + str(args.seed) + '_lr' + str(args.lr)
     if 'seq_len' in args and args.seq_len > 0:
-        output_model_name += f'l{args.seq_len}'
+        output_model_name += f'_l{args.seq_len}'
     if 'grad_acc' in args and args.grad_acc > 0:
-        output_model_name += f'ga{args.grad_acc}'
+        output_model_name += f'_ga{args.grad_acc}'
     output_model_name += scheduler_str
     return output_model_name
 
