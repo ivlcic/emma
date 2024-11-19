@@ -199,8 +199,8 @@ def llm_train(args) -> int:
         device_map=(
             "auto"
         ),
-        #torch_dtype=torch.bfloat16,
-        torch_dtype=torch.float16,
+        torch_dtype=torch.bfloat16,
+        #torch_dtype=torch.float16,
         pad_token_id=tokenizer.pad_token_id,
         problem_type='multi_label_classification' if 'multilabel' == labeler.get_type_code()
         else 'single_label_classification'
@@ -252,7 +252,8 @@ def llm_train(args) -> int:
         logging_strategy='epoch',
         logging_steps=1,
         weight_decay=0.01,
-        fp16=True,
+        fp16=False,
+        bf16=True,
         optim='adamw_8bit',
         run_name=output_model_name,
         metric_for_best_model='micro.f1',
