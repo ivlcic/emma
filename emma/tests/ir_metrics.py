@@ -6,7 +6,7 @@ from sklearn.metrics import ndcg_score
 
 from ..core.args import CommonArguments
 
-logger = logging.getLogger('tests.llm')
+logger = logging.getLogger('tests.ir_metrics')
 
 
 def add_args(module_name: str, parser: ArgumentParser) -> None:

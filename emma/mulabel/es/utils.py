@@ -54,7 +54,8 @@ def load_data(client: Elasticsearch, collection: str, start_date: datetime, end_
 
 
 def find_similar(client: Elasticsearch, collection: str, uuid: str, vector: List[float],
-                 callback: Callable[[Dict[str, Any], float], bool], size: int = 50) -> int:
+                 item_callback: Callable[[Dict[str, Any], float], bool],
+                 size: int = 50, passage_cat: List[int] = None) -> int:
     query = {
         'size': size,
         'query': {
@@ -66,23 +67,30 @@ def find_similar(client: Elasticsearch, collection: str, uuid: str, vector: List
                         }
                     }
                 ],
-                'must': {
+                'must': [{
                     'knn': {
                         'field': 'm_bge_m3',
                         'query_vector': vector,
                         'k': size
                     }
-                },
+                }]
             }
         },
-        '_source': ['a_uuid', 'a_id', 'date', 'text', 'm_bge_m3', 'label'],
+        '_source': ['a_uuid', 'a_id', 'date', 'text', 'm_bge_m3', 'label', 'label_info'],
         'sort': {
             '_score': 'desc'
         }
     }
+    if passage_cat is not None and len(passage_cat) > 0:
+        if 'filter' not in query['query']['bool']:
+            query['query']['bool']['filter'] = []
+
+        query['query']['bool']['filter'].append(
+            {'terms': {'passage_targets': passage_cat}}
+        )
 
     response = client.search(index=collection, body=query)
     for doc in response['hits']['hits']:
-        if not callback(doc['_source'], doc['_score']):
+        if not item_callback(doc['_source'], doc['_score']):
             break
     return len(response['hits']['hits'])
