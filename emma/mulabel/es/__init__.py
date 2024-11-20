@@ -385,7 +385,7 @@ def es_test_bge_m3(args) -> int:
 
 def es_calibrate_lrp_bge_m3(args) -> int:
     compute_arg_collection_name(args)
-    output_name = f'{args.collection}_calib_'
+    output_name = f'{args.collection}_calib'
     run = _init_task(args, output_name, 'BAAI/bge-m3', 'bge_m3')
     labeler = _init_labeler(args)
     models = _init_ebd_models(args)
@@ -473,7 +473,7 @@ def es_calibrate_lrp_bge_m3(args) -> int:
 
                 if i % 100 == 0:
                     logger.info(f'At label {i}/{label}')
-            calib_cat_file_name = os.path.join(args.data_in_dir, f'{output_name}_{passage_size}.csv')
+            calib_cat_file_name = os.path.join(args.data_in_dir, f'{output_name}_ps{passage_size}.csv')
             pd.DataFrame(data=label_thresholds).to_csv(calib_cat_file_name, index=False, encoding='utf-8')
     finally:
         client.close()
