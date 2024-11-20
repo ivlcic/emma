@@ -15,9 +15,8 @@ from FlagEmbedding import BGEM3FlagModel
 from sklearn.metrics import roc_curve
 from tqdm import tqdm
 
-from core.labels import Labeler
 from ...core.args import CommonArguments
-from ...core.labels import MultilabelLabeler
+from ...core.labels import MultilabelLabeler, Labeler
 from ...core.metrics import Metrics
 from ...core.wandb import initialize_run
 from ..tokenizer import get_segmenter
