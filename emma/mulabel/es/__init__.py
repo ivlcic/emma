@@ -12,6 +12,7 @@ from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
 
 from FlagEmbedding import BGEM3FlagModel
+from httpx import QueryParams
 from sklearn.metrics import roc_curve
 from tqdm import tqdm
 
@@ -22,7 +23,7 @@ from ...core.wandb import initialize_run
 from ..tokenizer import get_segmenter
 from ..utils import __supported_languages, __supported_passage_sizes, compute_arg_collection_name, load_add_corpus_part, \
     parse_arg_passage_sizes, load_map_file
-from .utils import load_data, find_similar
+from .utils import load_data, find_similar, State, SimilarParams, find_similar2
 
 logger = logging.getLogger('mulabel.es')
 
@@ -350,7 +351,6 @@ def es_test_bge_m3(args) -> int:
     test_coll_name = args.collection + '_test'
     data_as_dicts = _load_data(args, test_coll_name)
 
-    state = {'doc': {}, 'count': 0}
     y_true = []
     y_pred = []
     client = Elasticsearch(CLIENT_URL)
@@ -359,17 +359,17 @@ def es_test_bge_m3(args) -> int:
             logger.warning('Collection [%s] does not exist.', train_coll_name)
             return 1
 
-        def on_similar(similar_item: Dict[str, Any], score: float) -> bool:
-            y_pred.append(labeler.vectorize([similar_item['label']])[0])
+        def on_similar(state: State) -> bool:
+            y_pred.append(labeler.vectorize([state.hit['label']])[0])
             y_true.append(labeler.vectorize([state['doc']["label"]])[0])
             return False
 
         for data_item in tqdm(data_as_dicts, desc='Processing zero shot complete eval.'):
-            data_item['m_' + args.ptm_alias] = model(data_item['text'])[0].tolist()
-            state['doc'] = data_item
-            state['count'] += 1
-            num_ret = find_similar(
-                client, train_coll_name, data_item['a_uuid'], data_item[f'm_{args.ptm_alias}'], on_similar
+            state = State(data_item, 'text')
+            vec = model(state.text)[0].tolist()
+            params = SimilarParams(train_coll_name, data_item['a_uuid'], vec)
+            num_ret = find_similar2(
+                client, params, state, on_similar
             )
             # if state['count'] > 100:
             #    break
@@ -410,6 +410,15 @@ def es_calibrate_lrp_bge_m3(args) -> int:
         optimal_threshold = thresholds[optimal_idx]
         return optimal_threshold
 
+    def on_similar(state: State) -> bool:
+        if label not in state.hit['label']:
+            y_prob.append(state.score)
+            y_true.append(0)
+            return True
+        y_prob.append(state.score)
+        y_true.append(1)
+        return True
+
     client = Elasticsearch(CLIENT_URL)
     try:
         if not client.indices.exists(index=train_coll_name):
@@ -422,35 +431,23 @@ def es_calibrate_lrp_bge_m3(args) -> int:
                     enumerate(labeler.labels), f'Processing labels for passage category {passage_size}:'
             ):
                 filtered = df[(df['passage_cat'].isin([passage_size, 0])) & (df['label'].apply(lambda x: label in x))]
-                state = {'doc': {}, 'count': 0, 'similar': []}
                 y_true = []
                 y_prob = []
                 passage_data_as_dicts = filtered.to_dict(orient='records')
                 for data_i, data_item in enumerate(passage_data_as_dicts):
+                    state = State(data_item, 'text')
+                    vec = model(state.text)[0].tolist()
 
-                    def on_similar(similar_item: Dict[str, Any], score: float) -> bool:
-                        if label not in similar_item['label']:
-                            y_prob.append(score)
-                            y_true.append(0)
-                            return True
-                        y_prob.append(score)
-                        y_true.append(1)
-                        state['similar'].append(similar_item)
-                        return True
-
-                    state['doc'] = data_item
-                    data_item['m_' + args.ptm_alias] = model(data_item['text'])[0].tolist()
                     if data_item['passage_cat'] == 0:
-                        num_ret = find_similar(
-                            client, train_coll_name, data_item['a_uuid'], data_item[f'm_{args.ptm_alias}'],
-                            on_similar, size=10, passage_cat=0
-                        )
+                        params = SimilarParams(train_coll_name, data_item['a_uuid'], vec, size=10, passage_cat=0)
+                        find_similar2(client, params, state, on_similar)
                     else:
-                        num_ret = find_similar(
-                            client, train_coll_name, data_item['a_uuid'], data_item[f'm_{args.ptm_alias}'],
-                            on_similar, size=10, passage_targets=[data_item['passage_cat']]
+                        params = SimilarParams(
+                            train_coll_name, data_item['a_uuid'], vec, size=10,
+                            passage_targets=[data_item['passage_cat']]
                         )
-                    if num_ret == 0:
+                        find_similar2(client, params, state, on_similar)
+                    if state.total == 0:
                         continue
 
                 if label not in label_thresholds:
