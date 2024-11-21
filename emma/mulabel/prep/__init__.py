@@ -21,7 +21,7 @@ from sklearn.preprocessing import MultiLabelBinarizer
 
 from ..tokenizer import get_segmenter
 from ..utils import compute_arg_collection_name, load_map_file, construct_span_contexts, write_map_file, \
-    load_add_corpus_part, __supported_languages
+    load_add_corpus_part, __supported_languages, __supported_passage_sizes
 from ...core.args import CommonArguments
 
 logger = logging.getLogger('mulabel.prep')
@@ -183,7 +183,7 @@ def prep_corpus_extract(arg) -> int:
                         maps['trained_labels'][tag['id']] = maps['labels'][tag['id']]
 
                 text, db_labels = construct_span_contexts(
-                    article, segmenter, maps, [1, 3, 5, 7, 9]
+                    article, segmenter, maps, __supported_passage_sizes
                 )
                 n_tokens = 0
                 if text:

@@ -7,10 +7,6 @@ import pandas.api.types as ptypes
 
 from typing import List, Dict, Any, Callable, Tuple, Optional
 
-import torch
-from torch.utils.data import DataLoader
-from transformers import Trainer
-
 from ..core.dataset import TruncatedDataset
 from ..core.labels import Labeler, BinaryLabeler, MultilabelLabeler, MulticlassLabeler
 
@@ -21,6 +17,8 @@ __supported_languages = [
     'sk', 'cs', 'ro', 'hu', 'pl', 'pt', 'el', 'de', 'es', 'it'
 ]
 
+__supported_passage_sizes = [1, 3, 5, 7, 9]
+
 
 def compute_arg_collection_name(arg):
     arg.collection_conf = arg.collection
@@ -29,7 +27,8 @@ def compute_arg_collection_name(arg):
         arg.lang = arg.lang.split(',')
         not_in_languages = [lang for lang in arg.lang if lang not in __supported_languages]
         if not_in_languages:
-            logger.error('Languages %s are not supported!', [])
+            logger.error(f'Languages {not_in_languages} are not supported!')
+            raise ValueError(f'Languages {not_in_languages} are not supported!')
         arg.collection = arg.collection + '_' + '_'.join(arg.lang)
     else:
         arg.lang = __supported_languages
@@ -41,6 +40,18 @@ def compute_arg_collection_name(arg):
         arg.collection = arg.collection + '_s' + ('1' if arg.seed_only else '0')
     if 'suffix' in arg and arg.suffix:
         arg.collection = arg.collection + '_' + arg.suffix
+
+
+def parse_arg_passage_sizes(arg):
+    if 'passage_sizes' in arg and arg.passage_sizes:
+        arg.passage_sizes_conf = arg.passage_sizes
+        arg.passage_sizes = ast.literal_eval('[' + arg.passage_sizes + ']')
+        not_in_sizes = [int(size) for size in arg.passage_sizes if size not in __supported_passage_sizes]
+        if not_in_sizes:
+            logger.error(f'Passage sizes {not_in_sizes} are not supported!')
+            raise ValueError(f'Passage sizes {not_in_sizes} are not supported!')
+    else:
+        arg.passage_sizes = __supported_passage_sizes
 
 
 def load_map_file(file_name: str, cols: List[str]) -> Dict[str, Dict[str, Any]]:

@@ -20,7 +20,8 @@ from ...core.labels import MultilabelLabeler, Labeler
 from ...core.metrics import Metrics
 from ...core.wandb import initialize_run
 from ..tokenizer import get_segmenter
-from ..utils import __supported_languages, compute_arg_collection_name, load_add_corpus_part
+from ..utils import __supported_languages, __supported_passage_sizes, compute_arg_collection_name, load_add_corpus_part, \
+    parse_arg_passage_sizes
 from .utils import load_data, find_similar
 
 logger = logging.getLogger('mulabel.es')
@@ -58,8 +59,9 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
         type=str
     )
     parser.add_argument(
-        '--passage_size', help='When calibrating use passage_size',
-        type=int, default=1, choices=[1, 3, 5, 7, 9, 0]
+        '--passage_sizes', help=f'When calibrating use passage_sizes '
+                                f'You can use a comma separated list of {__supported_passage_sizes}',
+        type=str,
     )
     parser.add_argument(
         '--run_id', type=int, help=f'Run id for marking consecutive runs.', default=0
@@ -384,6 +386,7 @@ def es_test_bge_m3(args) -> int:
 
 def es_calibrate_lrp_bge_m3(args) -> int:
     compute_arg_collection_name(args)
+    parse_arg_passage_sizes(args)
     output_name = f'{args.collection}_calib'
     run = _init_task(args, output_name, 'BAAI/bge-m3', 'bge_m3')
     labeler = _init_labeler(args)
@@ -392,9 +395,8 @@ def es_calibrate_lrp_bge_m3(args) -> int:
 
     train_coll_name = args.collection + '_train'
     dev_coll_name = args.collection + '_dev'
-    data_as_dicts = _load_data(args, train_coll_name)
-    data_as_dicts.extend(_load_data(args, dev_coll_name))
-    passage_sizes = [1, 3, 5, 7, 9]
+    data_as_dicts = _load_data(args, dev_coll_name)
+    data_as_dicts.extend(_load_data(args, train_coll_name))
 
     def find_optimal_threshold(y_true, y_prob):
         if len(y_true) == 0:
@@ -413,16 +415,16 @@ def es_calibrate_lrp_bge_m3(args) -> int:
             logger.warning('Collection [%s] does not exist.', train_coll_name)
             return 1
         df = pd.DataFrame(data=data_as_dicts)
-        for passage_size in passage_sizes:
+        for passage_size in args.passage_sizes:
             label_thresholds = {}
             for i, label in tqdm(
                     enumerate(labeler.labels), f'Processing labels for passage category {passage_size}:'
             ):
-                filtered_df = df[(df['passage_cat'] == passage_size) & (df['label'].apply(lambda x: label in x))]
+                filtered = df[(df['passage_cat'].isin([passage_size, 0])) & (df['label'].apply(lambda x: label in x))]
                 state = {'doc': {}, 'count': 0, 'similar': []}
                 y_true = []
                 y_prob = []
-                passage_data_as_dicts = filtered_df.to_dict(orient='records')
+                passage_data_as_dicts = filtered.to_dict(orient='records')
                 for data_i, data_item in enumerate(passage_data_as_dicts):
 
                     def on_similar(similar_item: Dict[str, Any], score: float) -> bool:
@@ -442,8 +444,7 @@ def es_calibrate_lrp_bge_m3(args) -> int:
                         on_similar, size=10, passage_cat=[data_item['passage_cat']]
                     )
                     if num_ret == 0:
-                        y_prob.append(0.0)
-                        y_true.append(1)
+                        continue
 
                 if label not in label_thresholds:
                     label_thresholds[label] = {}
@@ -472,8 +473,9 @@ def es_calibrate_lrp_bge_m3(args) -> int:
 
                 if i % 100 == 0:
                     logger.info(f'At label {i}/{label}')
+            label_threshold_list = [v for v in label_thresholds.values()]
             calib_cat_file_name = os.path.join(args.data_in_dir, f'{output_name}_ps{passage_size}.csv')
-            pd.DataFrame(data=label_thresholds).to_csv(calib_cat_file_name, index=False, encoding='utf-8')
+            pd.DataFrame(data=label_threshold_list).to_csv(calib_cat_file_name, index=False, encoding='utf-8')
     finally:
         client.close()
 
