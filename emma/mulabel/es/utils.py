@@ -55,7 +55,8 @@ def load_data(client: Elasticsearch, collection: str, start_date: datetime, end_
 
 def find_similar(client: Elasticsearch, collection: str, uuid: str, vector: List[float],
                  item_callback: Callable[[Dict[str, Any], float], bool],
-                 size: int = 50, passage_cat: List[int] = None) -> int:
+                 size: int = 50, passage_targets: List[int] = None,
+                 passage_cat: int = -1) -> int:
     query = {
         'size': size,
         'query': {
@@ -81,12 +82,19 @@ def find_similar(client: Elasticsearch, collection: str, uuid: str, vector: List
             '_score': 'desc'
         }
     }
-    if passage_cat is not None and len(passage_cat) > 0:
+    if passage_targets is not None and len(passage_targets) > 0:
         if 'filter' not in query['query']['bool']:
             query['query']['bool']['filter'] = []
 
         query['query']['bool']['filter'].append(
-            {'terms': {'passage_targets': passage_cat}}
+            {'terms': {'passage_targets': passage_targets}}
+        )
+    if passage_cat >= 0:
+        if 'filter' not in query['query']['bool']:
+            query['query']['bool']['filter'] = []
+
+        query['query']['bool']['filter'].append(
+            {'term': {'passage_cat': passage_cat}}
         )
 
     response = client.search(index=collection, body=query)

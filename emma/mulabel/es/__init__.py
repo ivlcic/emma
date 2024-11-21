@@ -21,7 +21,7 @@ from ...core.metrics import Metrics
 from ...core.wandb import initialize_run
 from ..tokenizer import get_segmenter
 from ..utils import __supported_languages, __supported_passage_sizes, compute_arg_collection_name, load_add_corpus_part, \
-    parse_arg_passage_sizes
+    parse_arg_passage_sizes, load_map_file
 from .utils import load_data, find_similar
 
 logger = logging.getLogger('mulabel.es')
@@ -65,6 +65,9 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
     )
     parser.add_argument(
         '--run_id', type=int, help=f'Run id for marking consecutive runs.', default=0
+    )
+    parser.add_argument(
+        '--calib_max', type=int, help=f'Max number of labels to calibrate on.', default=-1
     )
 
 
@@ -407,8 +410,6 @@ def es_calibrate_lrp_bge_m3(args) -> int:
         optimal_threshold = thresholds[optimal_idx]
         return optimal_threshold
 
-
-
     client = Elasticsearch(CLIENT_URL)
     try:
         if not client.indices.exists(index=train_coll_name):
@@ -439,10 +440,16 @@ def es_calibrate_lrp_bge_m3(args) -> int:
 
                     state['doc'] = data_item
                     data_item['m_' + args.ptm_alias] = model(data_item['text'])[0].tolist()
-                    num_ret = find_similar(
-                        client, train_coll_name, data_item['a_uuid'], data_item[f'm_{args.ptm_alias}'],
-                        on_similar, size=10, passage_cat=[data_item['passage_cat']]
-                    )
+                    if data_item['passage_cat'] == 0:
+                        num_ret = find_similar(
+                            client, train_coll_name, data_item['a_uuid'], data_item[f'm_{args.ptm_alias}'],
+                            on_similar, size=10, passage_cat=0
+                        )
+                    else:
+                        num_ret = find_similar(
+                            client, train_coll_name, data_item['a_uuid'], data_item[f'm_{args.ptm_alias}'],
+                            on_similar, size=10, passage_targets=[data_item['passage_cat']]
+                        )
                     if num_ret == 0:
                         continue
 
@@ -473,6 +480,8 @@ def es_calibrate_lrp_bge_m3(args) -> int:
 
                 if i % 100 == 0:
                     logger.info(f'At label {i}/{label}')
+                if args.calib_max > 0 and i >= args.calib_max:
+                    break
             label_threshold_list = [v for v in label_thresholds.values()]
             calib_cat_file_name = os.path.join(args.data_in_dir, f'{output_name}_ps{passage_size}.csv')
             pd.DataFrame(data=label_threshold_list).to_csv(calib_cat_file_name, index=False, encoding='utf-8')
@@ -485,15 +494,27 @@ def es_calibrate_lrp_bge_m3(args) -> int:
 def es_test_lrp_bge_m3(args) -> int:
     """
     In development - specifically for LRP
-    ./mulabel es test_lrp_bge_m3 -c lrp_mulabel -l sl
-    ./mulabel es test_lrp_bge_m3 -c lrp_mulabel -l sl --public
-    ./mulabel es test_lrp_bge_m3 -c lrp_mulabel -l sl --public --seed_only
+    ./mulabel es test_lrp_bge_m3 -c lrp_mulabel -l sl --passage_sizes 1
+    ./mulabel es test_lrp_bge_m3 -c lrp_mulabel -l sl --public --passage_sizes 1
+    ./mulabel es test_lrp_bge_m3 -c lrp_mulabel -l sl --public --seed_only --passage_sizes 1
     """
     compute_arg_collection_name(args)
-    output_name = 'zshot_' + args.collection
+    parse_arg_passage_sizes(args)
+    if len(args.passage_sizes) > 1:
+        raise ValueError('There can be only one passage size for testing ... sorry!')
+
+    passage_size = args.passage_sizes[0]
+    calib_cat_file_name = os.path.join(args.data_in_dir, f'{args.collection}_calib_ps{passage_size}.csv')
+    if not os.path.exists(calib_cat_file_name):
+        raise ValueError(f'You need to calibrate labels first to produce [{calib_cat_file_name}] file! ... sorry!')
+
+    calib_df = pd.read_csv(calib_cat_file_name, encoding='utf-8')
+    calib_dict = {row['label']: row.drop('label').to_dict() for _, row in calib_df.iterrows()}
+
+    output_name = f'zshot_{passage_size}_' + args.collection
     run = _init_task(args, output_name, 'BAAI/bge-m3', 'bge_m3')
     labeler = _init_labeler(args)
-    metrics = Metrics('zshot_' + args.collection, labeler.get_type_code())
+    metrics = Metrics(output_name, labeler.get_type_code())
 
     segmenters = _init_segmenters(args)
     models = _init_ebd_models(args)
@@ -521,7 +542,18 @@ def es_test_lrp_bge_m3(args) -> int:
             return True
 
         for data_item in tqdm(data_as_dicts, desc='Processing zero shot complete eval.'):
-            if data_item['passage_cat'] != 1:
+            passage_cat = data_item['passage_cat']
+            if passage_cat != passage_size and passage_cat != 0:
+                continue
+            my_labels = data_item['label']
+            my_labels_calib = {}
+            my_labels_missing = {}
+            for my_label in my_labels:
+                if my_label in calib_dict:
+                    my_labels_calib[my_label] = calib_dict[my_label]
+                else:
+                    my_labels_missing[my_label] = {}
+            if len(my_labels_calib) == 0:
                 continue
             state['count'] += 1
             state['similar'] = []
@@ -532,10 +564,16 @@ def es_test_lrp_bge_m3(args) -> int:
             for sentence in segmenters[data_item['lang']](data_item['text']).sentences:
                 text = sentence.text
                 data_item['m_' + args.ptm_alias] = model(text)[0].tolist()
-                num_ret = find_similar(
-                    client, train_coll_name, data_item['a_uuid'], data_item[f'm_{args.ptm_alias}'],
-                    on_similar, size=50, passage_cat=[data_item['passage_cat']]
-                )
+                if passage_cat == 0:
+                    num_ret = find_similar(
+                        client, train_coll_name, data_item['a_uuid'], data_item[f'm_{args.ptm_alias}'],
+                        on_similar, size=10, passage_cat=0
+                    )
+                else:
+                    num_ret = find_similar(
+                        client, train_coll_name, data_item['a_uuid'], data_item[f'm_{args.ptm_alias}'],
+                        on_similar, size=10, passage_targets=[data_item['passage_cat']]
+                    )
                 if num_ret <= 0:
                     logger.warning("kr neki")
 
@@ -545,9 +583,9 @@ def es_test_lrp_bge_m3(args) -> int:
     finally:
         client.close()
 
-    m = metrics(np.array(y_true, dtype=float), np.array(y_pred, dtype=float), 'test/')
-    metrics.dump(args.data_result_dir, None, run)
-    if run is not None:
-        run.log(m)
+    #m = metrics(np.array(y_true, dtype=float), np.array(y_pred, dtype=float), 'test/')
+    #metrics.dump(args.data_result_dir, None, run)
+    #if run is not None:
+    #    run.log(m)
 
     return 0
