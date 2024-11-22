@@ -12,8 +12,6 @@ from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
 
 from FlagEmbedding import BGEM3FlagModel
-from httpx import QueryParams
-from sklearn.metrics import roc_curve
 from tqdm import tqdm
 
 from ...core.args import CommonArguments
@@ -21,9 +19,9 @@ from ...core.labels import MultilabelLabeler, Labeler
 from ...core.metrics import Metrics
 from ...core.wandb import initialize_run
 from ..tokenizer import get_segmenter
-from ..utils import __supported_languages, __supported_passage_sizes, compute_arg_collection_name, load_add_corpus_part, \
-    parse_arg_passage_sizes, load_map_file
-from .utils import load_data, find_similar, State, SimilarParams, find_similar2
+from ..utils import (__supported_languages, __supported_passage_sizes, compute_arg_collection_name,
+                     load_add_corpus_part, parse_arg_passage_sizes)
+from .utils import load_data, State, SimilarParams, find_similar, LabelStats, LabelDecider
 
 logger = logging.getLogger('mulabel.es')
 
@@ -220,37 +218,32 @@ def es_dedup(args) -> int:
     start_date = datetime(2022, 12, 31)
     end_date = datetime(2023, 6, 2)
 
-    state = {'count': 0, 'duplicates': set(), 'dup_map': {}, 'doc': {}}
     duplicates = []
+    dup_checked = set()
     client = Elasticsearch(CLIENT_URL)
     try:
-        def on_similar(data_item: Dict[str, Any], score: float) -> bool:
-            if score > 0.99:
-                q_a_uuid = state['doc']['a_uuid']
-                v_a_uuid = data_item['a_uuid']
+        def on_similar(s: State) -> bool:
+            if s.score > 0.99:
                 # logger.info(
                 #    'Article [%s] [%s][%s] is very similar to [%s][%s]',
                 #    state['count'], q_a_uuid, state['doc']['date'], v_a_uuid, data_item['date']
                 # )
                 # logger.info('Similar texts: \n\n[%s]\n\n[%s]', state['doc']['text'], data_item['text'])
-                if q_a_uuid not in state['dup_map']:
-                    state['dup_map'][q_a_uuid] = [v_a_uuid]
-                else:
-                    state['dup_map'][q_a_uuid].append(v_a_uuid)
-                state['duplicates'].add(v_a_uuid)
-                del data_item['m_bge_m3']
-                data_item['similar_uuid'] = q_a_uuid
-                data_item['similar_id'] = state['doc']['a_id']
-                # data_item['similar_text'] = state['doc']['text']
-                duplicates.append(data_item)
+                dup_checked.add(s.hit['a_uuid'])
+
+                del s.hit['m_bge_m3']
+                s.hit['similar_uuid'] = s.item['a_uuid']
+                s.hit['similar_id'] = s.item['a_id']
+                duplicates.append(s.hit)
             return True
 
         def on_item(data_item: Dict[str, Any]) -> bool:
-            state['count'] += 1
-            state['doc'] = data_item
-            if data_item['a_uuid'] in state['duplicates']:
+            if data_item['a_uuid'] in dup_checked:
                 return True
-            find_similar(client, args.collection, data_item['a_uuid'], data_item['m_bge_m3'], on_similar)
+            s = State(data_item, 'text')
+            embedding = data_item['m_bge_m3']
+            params = SimilarParams(args.collection, data_item['a_uuid'], embedding)
+            find_similar(client, params, s, on_similar)
             return True
 
         load_data(client, args.collection, start_date, end_date, on_item)
@@ -359,18 +352,16 @@ def es_test_bge_m3(args) -> int:
             logger.warning('Collection [%s] does not exist.', train_coll_name)
             return 1
 
-        def on_similar(state: State) -> bool:
-            y_pred.append(labeler.vectorize([state.hit['label']])[0])
-            y_true.append(labeler.vectorize([state['doc']["label"]])[0])
+        def on_similar(curr_state: State) -> bool:
+            y_pred.append(labeler.vectorize([curr_state.hit['label']])[0])
+            y_true.append(labeler.vectorize([curr_state.item["label"]])[0])
             return False
 
         for data_item in tqdm(data_as_dicts, desc='Processing zero shot complete eval.'):
             state = State(data_item, 'text')
-            vec = model(state.text)[0].tolist()
-            params = SimilarParams(train_coll_name, data_item['a_uuid'], vec)
-            num_ret = find_similar2(
-                client, params, state, on_similar
-            )
+            embedding = model(state.text)[0].tolist()
+            params = SimilarParams(train_coll_name, data_item['a_uuid'], embedding)
+            num_ret = find_similar(client, params, state, on_similar)
             # if state['count'] > 100:
             #    break
             if num_ret == 0:
@@ -396,19 +387,10 @@ def es_calibrate_lrp_bge_m3(args) -> int:
     models = _init_ebd_models(args)
     model = models[args.ptm_alias]
 
-    train_coll_name = args.collection + '_train'
-    dev_coll_name = args.collection + '_dev'
-    data_as_dicts = _load_data(args, dev_coll_name)
-    data_as_dicts.extend(_load_data(args, train_coll_name))
-
-    def find_optimal_threshold(y_true, y_prob):
-        if len(y_true) == 0:
-            return 0.0
-        fpr, tpr, thresholds = roc_curve(y_true, y_prob)
-        youden_j = tpr - fpr  # Youden's J statistic
-        optimal_idx = np.argmax(youden_j)
-        optimal_threshold = thresholds[optimal_idx]
-        return optimal_threshold
+    train_coll = args.collection + '_train'
+    dev_coll = args.collection + '_dev'
+    data_as_dicts = _load_data(args, dev_coll)
+    data_as_dicts.extend(_load_data(args, train_coll))
 
     def on_similar(state: State) -> bool:
         if label not in state.hit['label']:
@@ -421,8 +403,8 @@ def es_calibrate_lrp_bge_m3(args) -> int:
 
     client = Elasticsearch(CLIENT_URL)
     try:
-        if not client.indices.exists(index=train_coll_name):
-            logger.warning('Collection [%s] does not exist.', train_coll_name)
+        if not client.indices.exists(index=train_coll):
+            logger.warning('Collection [%s] does not exist.', train_coll)
             return 1
         df = pd.DataFrame(data=data_as_dicts)
         for passage_size in args.passage_sizes:
@@ -434,52 +416,35 @@ def es_calibrate_lrp_bge_m3(args) -> int:
                 y_true = []
                 y_prob = []
                 passage_data_as_dicts = filtered.to_dict(orient='records')
+                states = []
                 for data_i, data_item in enumerate(passage_data_as_dicts):
                     state = State(data_item, 'text')
-                    vec = model(state.text)[0].tolist()
+                    states.append(state)
+                    embedding = model(state.text)[0].tolist()
+                    passage_cat = data_item['passage_cat']
 
-                    if data_item['passage_cat'] == 0:
-                        params = SimilarParams(train_coll_name, data_item['a_uuid'], vec, size=10, passage_cat=0)
-                        find_similar2(client, params, state, on_similar)
+                    if passage_cat == 0:
+                        params = SimilarParams(train_coll, data_item['a_uuid'], embedding, passage_cat=0)
+                        find_similar(client, params, state, on_similar)
                     else:
                         params = SimilarParams(
-                            train_coll_name, data_item['a_uuid'], vec, size=10,
-                            passage_targets=[data_item['passage_cat']]
+                            train_coll, data_item['a_uuid'], embedding, passage_targets=[passage_cat]
                         )
-                        find_similar2(client, params, state, on_similar)
+                        find_similar(client, params, state, on_similar)
                     if state.total == 0:
                         continue
 
                 if label not in label_thresholds:
-                    label_thresholds[label] = {}
-                if len(y_prob) == 0:
-                    label_thresholds[label]['label'] = label
-                    label_thresholds[label][f'opt'] = 0.0
-                    label_thresholds[label][f'min'] = 0.0
-                    label_thresholds[label][f'max'] = 0.0
-                    label_thresholds[label][f'mean'] = 0.0
-                    label_thresholds[label][f'pos'] = 0.0
-                    label_thresholds[label][f'neg'] = 0.0
-                    label_thresholds[label][f'num'] = 0.0
-                else:
-                    y_prob = np.array(y_prob)
-                    y_true = np.array(y_true)
-                    tmp = y_prob * y_true
-                    tmp = tmp[tmp > 0]
-                    label_thresholds[label]['label'] = label
-                    label_thresholds[label][f'opt'] = find_optimal_threshold(y_true, y_prob)
-                    label_thresholds[label][f'min'] = np.min(tmp) if len(tmp) > 0 else 0.0
-                    label_thresholds[label][f'max'] = np.max(tmp) if len(tmp) > 0 else 0.0
-                    label_thresholds[label][f'mean'] = np.mean(tmp) if len(tmp) > 0 else 0.0
-                    label_thresholds[label][f'pos'] = np.sum(y_true)
-                    label_thresholds[label][f'neg'] = y_true.shape[0] - np.sum(y_true)
-                    label_thresholds[label][f'num'] = y_true.shape[0]
+                    label_thresholds[label] = LabelStats(label)
+                if len(y_prob) > 0:
+                    label_thresholds[label].compute(y_true, y_prob)
 
                 if i % 100 == 0:
                     logger.info(f'At label {i}/{label}')
-                if args.calib_max > 0 and i >= args.calib_max:
+                if 0 < args.calib_max <= i:
                     break
-            label_threshold_list = [v for v in label_thresholds.values()]
+
+            label_threshold_list = [v.__dict__ for v in label_thresholds.values()]
             calib_cat_file_name = os.path.join(args.data_in_dir, f'{output_name}_ps{passage_size}.csv')
             pd.DataFrame(data=label_threshold_list).to_csv(calib_cat_file_name, index=False, encoding='utf-8')
     finally:
@@ -506,7 +471,15 @@ def es_test_lrp_bge_m3(args) -> int:
         raise ValueError(f'You need to calibrate labels first to produce [{calib_cat_file_name}] file! ... sorry!')
 
     calib_df = pd.read_csv(calib_cat_file_name, encoding='utf-8')
-    calib_dict = {row['label']: row.drop('label').to_dict() for _, row in calib_df.iterrows()}
+
+    def dict_to_stats_obj(l: str, d: Dict[str, Any]) -> LabelStats:
+        stat = LabelStats(l)
+        stat.__dict__.update(d)
+        return stat
+
+    calib_dict: Dict[str, LabelStats] = {row['label']: dict_to_stats_obj(
+        row['label'], row.drop('label').to_dict()
+    ) for _, row in calib_df.iterrows()}
 
     output_name = f'zshot_{passage_size}_' + args.collection
     run = _init_task(args, output_name, 'BAAI/bge-m3', 'bge_m3')
@@ -517,72 +490,74 @@ def es_test_lrp_bge_m3(args) -> int:
     models = _init_ebd_models(args)
     model = models[args.ptm_alias]
 
-    train_coll_name = args.collection + '_train'
-    test_coll_name = args.collection + '_test'
-    data_as_dicts = _load_data(args, test_coll_name)
+    train_coll = args.collection + '_train'
+    test_coll = args.collection + '_test'
+    data_as_dicts = _load_data(args, test_coll)
 
-    state = {'count': 0, 'similar': []}
     y_true = []
     y_pred = []
     client = Elasticsearch(CLIENT_URL)
     try:
-        if not client.indices.exists(index=train_coll_name):
-            logger.warning('Collection [%s] does not exist.', train_coll_name)
+        if not client.indices.exists(index=train_coll):
+            logger.warning('Collection [%s] does not exist.', train_coll)
             return 1
 
-        def on_similar(similar_item: Dict[str, Any], score: float) -> bool:
-            if score > 0.80:
-                for model_name, model in models.items():
-                    del similar_item['m_' + model_name]
-                similar_item['score'] = score
-                state['similar'].append(similar_item)
-            return True
-
-        for data_item in tqdm(data_as_dicts, desc='Processing zero shot complete eval.'):
+        for data_item in tqdm(data_as_dicts, desc='Processing zero shot LRP eval.'):
             passage_cat = data_item['passage_cat']
             if passage_cat != passage_size and passage_cat != 0:
                 continue
-            my_labels = data_item['label']
-            my_labels_calib = {}
-            my_labels_missing = {}
-            for my_label in my_labels:
-                if my_label in calib_dict:
-                    my_labels_calib[my_label] = calib_dict[my_label]
-                else:
-                    my_labels_missing[my_label] = {}
-            if len(my_labels_calib) == 0:
-                continue
-            state['count'] += 1
-            state['similar'] = []
-            if data_item['lang'] not in segmenters:
-                logger.warning('Language [%s] does not exist.', data_item['lang'])
+            decider = LabelDecider(data_item['label'], calib_dict)
+            if decider.skip():  # no labels in calibration
                 continue
 
-            for sentence in segmenters[data_item['lang']](data_item['text']).sentences:
-                text = sentence.text
-                data_item['m_' + args.ptm_alias] = model(text)[0].tolist()
+            def on_similar(s: State) -> bool:
+                pred_labels = s.hit['label'].copy()
+                compare_score = 0.80
+                s.pop()  # remove similar
+                for pred_label in pred_labels:
+                    if pred_label not in calib_dict:
+                        return True
+
+                    # predicted was calibrated
+                    pred_stats: LabelStats = calib_dict[pred_label]
+                    if pred_stats.num > 0 and pred_stats.pos > 0 and pred_stats.neg > 0:
+                        compare_score = pred_stats.opt
+
+                    if s.score >= compare_score and not pred_label in s.data['label']:
+                        s.data['label'].append(pred_label)
+
+                return True
+
+            state = State(data_item, 'text')
+            state.data['label'] = []
+            lang = data_item['lang']
+
+            if lang not in segmenters:
+                logger.warning('Language [%s] does not exist.', lang)
+                continue
+
+            for sentence in segmenters[lang](data_item['text']).sentences:
+                state.text = sentence.text
+                vec = model(state.text)[0].tolist()
+
                 if passage_cat == 0:
-                    num_ret = find_similar(
-                        client, train_coll_name, data_item['a_uuid'], data_item[f'm_{args.ptm_alias}'],
-                        on_similar, size=10, passage_cat=0
-                    )
+                    params = SimilarParams(train_coll, data_item['a_uuid'], vec, passage_cat=0)
+                    find_similar(client, params, state, on_similar)
                 else:
-                    num_ret = find_similar(
-                        client, train_coll_name, data_item['a_uuid'], data_item[f'm_{args.ptm_alias}'],
-                        on_similar, size=10, passage_targets=[data_item['passage_cat']]
+                    params = SimilarParams(
+                        train_coll, data_item['a_uuid'], vec, passage_targets=[data_item['passage_cat']]
                     )
-                if num_ret <= 0:
-                    logger.warning("kr neki")
+                    find_similar(client, params, state, on_similar)
 
-            # if state['count'] > 100:
-            #    break
+            y_pred.append(labeler.vectorize([state.data['label']])[0])
+            y_true.append(labeler.vectorize([decider.calibrated.keys()])[0])
 
     finally:
         client.close()
 
-    #m = metrics(np.array(y_true, dtype=float), np.array(y_pred, dtype=float), 'test/')
-    #metrics.dump(args.data_result_dir, None, run)
-    #if run is not None:
-    #    run.log(m)
+    m = metrics(np.array(y_true, dtype=float), np.array(y_pred, dtype=float), 'test/')
+    metrics.dump(args.data_result_dir, None, run)
+    if run is not None:
+        run.log(m)
 
     return 0
