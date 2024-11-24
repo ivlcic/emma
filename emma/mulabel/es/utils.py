@@ -207,7 +207,7 @@ def find_similar(client: Elasticsearch, params: SimilarParams,
                         'field': 'm_bge_m3',
                         'query_vector': params.vector,
                         'k': params.size * 2,
-                        'num_candidates': params.size * 100
+                        'num_candidates': params.size * 10
                     }
                 }]
             }

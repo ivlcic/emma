@@ -491,7 +491,7 @@ def es_test_lrp_bge_m3(args) -> int:
     model = models[args.ptm_alias]
 
     train_coll = args.collection + '_train'
-    test_coll = args.collection + '_test'
+    test_coll = args.collection.replace('lrp_', '') + '_test'
     data_as_dicts = _load_data(args, test_coll)
 
     y_true = []
@@ -503,18 +503,17 @@ def es_test_lrp_bge_m3(args) -> int:
             return 1
 
         for data_item in tqdm(data_as_dicts, desc='Processing zero shot LRP eval.'):
-            passage_cat = data_item['passage_cat']
-            if passage_cat != passage_size and passage_cat != 0:
-                continue
+            if 'passage_cat' in data_item:  # using lrp_xy collection file
+                if data_item['passage_cat'] != passage_size and data_item['passage_cat'] != 0:
+                    continue
             decider = LabelDecider(data_item['label'], calib_dict)
             if decider.skip():  # no labels in calibration
                 continue
 
             def on_similar(s: State) -> bool:
-                pred_labels = s.hit['label'].copy()
                 compare_score = 0.80
                 s.pop()  # remove similar
-                for pred_label in pred_labels:
+                for pred_label in s.hit['label']:
                     if pred_label not in calib_dict:
                         return True
 
@@ -523,7 +522,7 @@ def es_test_lrp_bge_m3(args) -> int:
                     if pred_stats.num > 0 and pred_stats.pos > 0 and pred_stats.neg > 0:
                         compare_score = pred_stats.opt
 
-                    if s.score >= compare_score and not pred_label in s.data['label']:
+                    if s.score >= compare_score and pred_label not in s.data['label']:
                         s.data['label'].append(pred_label)
 
                 return True
@@ -531,26 +530,37 @@ def es_test_lrp_bge_m3(args) -> int:
             state = State(data_item, 'text')
             state.data['label'] = []
             lang = data_item['lang']
+            doc_embed = model(state.text)[0].tolist()
 
             if lang not in segmenters:
                 logger.warning('Language [%s] does not exist.', lang)
                 continue
 
+            chunks = []
+            chunk = []
             for sentence in segmenters[lang](data_item['text']).sentences:
-                state.text = sentence.text
-                vec = model(state.text)[0].tolist()
+                chunk.append(sentence.text)
+                if len(chunk) == passage_size:
+                    chunks.append(' '.join(chunk))
+                    chunk = []
+            if len(chunk):
+                chunks.append(' '.join(chunk))
 
-                if passage_cat == 0:
-                    params = SimilarParams(train_coll, data_item['a_uuid'], vec, passage_cat=0)
-                    find_similar(client, params, state, on_similar)
-                else:
-                    params = SimilarParams(
-                        train_coll, data_item['a_uuid'], vec, passage_targets=[data_item['passage_cat']]
-                    )
-                    find_similar(client, params, state, on_similar)
+            for chunk in chunks:
+                state.text = chunk
+                chunk_embed = model(state.text)[0].tolist()
+                params = SimilarParams(
+                    train_coll, data_item['a_uuid'], chunk_embed, passage_cat=passage_size
+                )
+                find_similar(client, params, state, on_similar)
 
-            y_pred.append(labeler.vectorize([state.data['label']])[0])
-            y_true.append(labeler.vectorize([decider.calibrated.keys()])[0])
+            # params = SimilarParams(train_coll, data_item['a_uuid'], doc_embed, passage_cat=0)
+            # find_similar(client, params, state, on_similar)
+
+            pred_labels = state.data['label']
+            true_labels = decider.calibrated.keys()
+            y_pred.append(labeler.vectorize([pred_labels])[0])
+            y_true.append(labeler.vectorize([true_labels])[0])
 
     finally:
         client.close()

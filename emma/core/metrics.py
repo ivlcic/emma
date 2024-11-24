@@ -40,8 +40,8 @@ class MetricsAtK:
             relevant_in_k = np.sum(y_true[i][top_k_indices])
 
             # Compute metrics for this sample
-            self.r_precisions[i] = relevant_in_k / total_relevant if total_relevant > 0 else 0
-            self.recalls[i] = relevant_in_k / total_relevant_at_k if total_relevant_at_k > 0 else 0
+            self.r_precisions[i] = relevant_in_k / total_relevant_at_k if total_relevant_at_k > 0 else 0
+            self.recalls[i] = relevant_in_k / total_relevant if total_relevant > 0 else 0
             self.precisions[i] = relevant_in_k / k if k > 0 else 0
 
         self.mean_r_precision = np.mean(self.r_precisions)
@@ -50,18 +50,13 @@ class MetricsAtK:
         self.ndcg = ndcg_score(y_true, y_prob, k=self.k)
 
     def todict(self, prefix: str = '') -> Dict[str, float]:
-        result = {}
-        if self.k is not None:
-            result[f'{prefix}r-p@{self.k}'] = self.mean_r_precision
-            result[f'{prefix}p@{self.k}'] = self.mean_precision
-            result[f'{prefix}r@{self.k}'] = self.mean_recall
-            result[f'{prefix}ndcg@{self.k}'] = self.ndcg
-        else:
-            result[f'{prefix}r-p@'] = self.mean_r_precision
-            result[f'{prefix}p@'] = self.mean_precision
-            result[f'{prefix}r@'] = self.mean_recall
-            result[f'{prefix}ndcg'] = self.ndcg
-        return result
+        suffix = f'@{self.k}' if self.k is not None else ''
+        return {
+            f'{prefix}r-p{suffix}': self.mean_r_precision,
+            f'{prefix}p{suffix}': self.mean_precision,
+            f'{prefix}r{suffix}': self.mean_recall,
+            f'{prefix}ndcg{suffix}': self.ndcg,
+        }
 
 
 class Metrics:
