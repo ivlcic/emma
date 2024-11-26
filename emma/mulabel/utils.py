@@ -313,12 +313,14 @@ def compute_model_output_name(args):
     return output_model_name
 
 
-def load_train_data(split_dir, corpus: str):
+def load_train_data(split_dir, corpus: str, test_only: bool = False):
     text_set = {}
     label_set = {}
 
     labeler: Labeler = BinaryLabeler()
     for split in ['train', 'dev', 'test']:
+        if test_only and split != 'test':
+            continue
         file_path = os.path.join(split_dir, corpus, split + '.csv')
         if not os.path.isfile(file_path):
             file_path = os.path.join(split_dir, corpus + f'_{split}.csv')
@@ -358,6 +360,8 @@ def load_train_data(split_dir, corpus: str):
             labeler.collect(label_set[split])
     labeler.fit()
     for split in ['train', 'dev', 'test']:
+        if test_only and split != 'test':
+            continue
         label_set[split] = labeler.vectorize(label_set[split])
     return text_set, label_set, labeler
 

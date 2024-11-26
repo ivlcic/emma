@@ -1,6 +1,8 @@
 import ast
 import os
 import logging
+
+import numpy as np
 import weaviate
 import pandas as pd
 import pandas.api.types as ptypes
@@ -16,6 +18,7 @@ from weaviate.util import generate_uuid5
 from weaviate.collections.classes.config import Configure, Property, DataType, VectorDistances
 from FlagEmbedding import BGEM3FlagModel
 
+from ...core.metrics import Metrics
 from ...core.labels import MultilabelLabeler
 from ..tokenizer import get_segmenter
 from ..utils import __supported_languages, compute_arg_collection_name
@@ -30,6 +33,7 @@ __WEAVIATE_PORT = 18484
 def add_args(module_name: str, parser: ArgumentParser) -> None:
     CommonArguments.split_data_dir(module_name, parser, ('-i', '--data_in_dir'))
     CommonArguments.raw_data_dir(module_name, parser, ('-o', '--data_out_dir'))
+    CommonArguments.result_dir(module_name, parser, ('-r', '--data_result_dir'))
     parser.add_argument(
         '-c', '--collection', help='Collection to manage.', type=str,
     )
@@ -357,6 +361,7 @@ def db_test_bge_m3(arg) -> int:
     ./mulabel db test_bge_m3 -c mulabel
     ./mulabel db test_bge_m3 -c mulabel -l sl,sr
 
+    ./mulabel db test_bge_m3 -c whole_mulabel -l sl --public
     ./mulabel db test_bge_m3 -c mulabel -l sl --public
     ./mulabel db test_bge_m3 -c mulabel -l sl --public --seed_only
     """
@@ -365,6 +370,7 @@ def db_test_bge_m3(arg) -> int:
     if result != arg.collection:
         lpr = False
         arg.collection = result
+    print(f'')
 
     compute_arg_collection_name(arg)
     tokenizers = {}
@@ -396,7 +402,7 @@ def db_test_bge_m3(arg) -> int:
             return 1
         coll = client.collections.get(coll_name)
         for idx, article in enumerate(test_dicts):
-            logger.info('Processing article [%s]', article)
+            #logger.info('Processing article [%s]', article)
 
             doc = tokenizers[article['lang']](article['text'])
             sentences = [sentence.text for sentence in doc.sentences]
@@ -430,26 +436,30 @@ def db_test_bge_m3(arg) -> int:
                         distance=0.40,
                         return_metadata=MetadataQuery(distance=True)
                     )
-                    print('===================================================================')
+                    #print('===================================================================')
                     y_true.append(labeler.vectorize([article['labels']])[0])
-                    print(f'[{article["labels"]}]')
+                    #print(f'[{article["labels"]}]')
                     if len(response.objects) == 0:
                         y_pred.append(labeler.vectorize([[]])[0])
                     else:
                         for o in response.objects:
-                            print(f'[{o.properties["labels"]}|a:{o.properties["a_id"]}]: '
-                                  f'{o.metadata.distance} [{o.properties["text"][:-1]}]')
+                            #print(f'[{o.properties["labels"]}|a:{o.properties["a_id"]}]: '
+                            #      f'{o.metadata.distance} [{o.properties["text"][:-1]}]')
                             y_pred.append(labeler.vectorize([o.properties["labels"]])[0])
                             break
-            if idx > 10:
-                break
+            if idx % 100 == 0:
+                logger.info('Processing article [%s]', article)
+                #break
 
     finally:
         client.close()
 
+    metrics = Metrics('zshot_dup_' + arg.collection, labeler.get_type_code())
     average_type = 'micro'
     p = precision_score(y_true, y_pred, average=average_type)
     r = recall_score(y_true, y_pred, average=average_type)
     f1 = f1_score(y_true, y_pred, average=average_type)
     print(f'Precision:{p}\nRecall:{r}\nF1:{f1}')
+    m = metrics(np.array(y_true, dtype=float), np.array(y_pred, dtype=float), 'test/')
+    metrics.dump(arg.data_result_dir, None, None)
     return 0

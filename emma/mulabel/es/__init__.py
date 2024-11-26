@@ -392,15 +392,6 @@ def es_calibrate_lrp_bge_m3(args) -> int:
     data_as_dicts = _load_data(args, dev_coll)
     data_as_dicts.extend(_load_data(args, train_coll))
 
-    def on_similar(state: State) -> bool:
-        if label not in state.hit['label']:
-            y_prob.append(state.score)
-            y_true.append(0)
-            return True
-        y_prob.append(state.score)
-        y_true.append(1)
-        return True
-
     client = Elasticsearch(CLIENT_URL)
     try:
         if not client.indices.exists(index=train_coll):
@@ -417,6 +408,16 @@ def es_calibrate_lrp_bge_m3(args) -> int:
                 y_prob = []
                 passage_data_as_dicts = filtered.to_dict(orient='records')
                 states = []
+
+                def on_similar(s: State) -> bool:
+                    if label not in s.hit['label']:
+                        y_prob.append(s.score)
+                        y_true.append(0)
+                        return True
+                    y_prob.append(s.score)
+                    y_true.append(1)
+                    return True
+
                 for data_i, data_item in enumerate(passage_data_as_dicts):
                     state = State(data_item, 'text')
                     states.append(state)

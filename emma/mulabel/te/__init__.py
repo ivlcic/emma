@@ -203,3 +203,73 @@ def te_train(args) -> int:
     metrics.dump(result_path, {'seed': args.seed}, run)
     # remove_checkpoint_dir(result_path)
     return 0
+
+
+def te_test(args) -> int:
+    """
+    ./mulabel te test --ptm_name xlmrb_news_sl-p1s0_x0_b16_e30_s1425_lr3e-05 -c mulabel_sl_p1_s0_filtered_article
+    ./mulabel te test --ptm_name xlmrb_news_sl-p1s0_x0_b16_e30_s1710_lr3e-05 -c mulabel_sl_p1_s0_filtered_article
+    ./mulabel te test --ptm_name xlmrb_news_sl-p1s0_x0_b16_e30_s3821_lr3e-05 -c mulabel_sl_p1_s0_filtered_article
+    ./mulabel te test --ptm_name xlmrb_news_sl-p1s0_x0_b16_e30_s4823_lr3e-05 -c mulabel_sl_p1_s0_filtered_article
+    ./mulabel te test --ptm_name xlmrb_news_sl-p1s0_x0_b16_e30_s5327_lr3e-05 -c mulabel_sl_p1_s0_filtered_article
+
+    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s1710_lr3e-05 -c mulabel_sl_p1_s0
+    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s2573_lr3e-05 -c mulabel_sl_p1_s0
+    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s3821_lr3e-05 -c mulabel_sl_p1_s0
+    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s4823_lr3e-05 -c mulabel_sl_p1_s0
+    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s7352_lr3e-05 -c mulabel_sl_p1_s0
+
+    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s2611_lr3e-05 -c eurlex_all_p0_s0
+    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s2963_lr3e-05 -c eurlex_all_p0_s0
+    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s4789_lr3e-05 -c eurlex_all_p0_s0
+    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s5823_lr3e-05 -c eurlex_all_p0_s0
+    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s7681_lr3e-05 -c eurlex_all_p0_s0
+
+    """
+    model_path = os.path.join(args.data_out_dir, 'test', args.ptm_name)
+    if not os.path.exists(model_path):
+        raise ValueError(f'Missing model path: {model_path}')
+    args.corpus = args.collection
+    logger.debug(f'Loading data from corpus [{args.corpus}]')
+    text_set, label_set, labeler = load_train_data(args.data_in_dir, args.corpus, test_only=True)
+    logger.debug(f'Loaded data from corpus [{args.corpus}]')
+
+    use_cuda = torch.cuda.is_available()
+    device = torch.device('cuda' if use_cuda else 'cpu')
+    model: PreTrainedModel = AutoModelForSequenceClassification.from_pretrained(
+        model_path, cache_dir=args.tmp_dir, num_labels=labeler.num_labels,
+        id2label=labeler.ids_to_labels(), label2id=labeler.labels_to_ids(),
+        problem_type='multi_label_classification' if 'multilabel' == labeler.get_type_code()
+        else 'single_label_classification'
+    )
+    model.to(device)
+    tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(
+        'xlm-roberta-base', cache_dir=args.tmp_dir
+    )
+
+    datasets, avg_k = construct_datasets(text_set, label_set, tokenizer, 512)
+
+    def preprocess_logits_for_metrics(logits: Tensor, _: Tensor):
+        if labeler.get_type_code() == 'multilabel':
+            prob = torch.sigmoid(logits)
+        else:
+            prob = torch.softmax(logits, dim=-1)
+        return prob
+
+    metrics = Metrics(args.ptm_name, labeler.get_type_code(), avg_k)
+
+    def compute_metrics(eval_pred: EvalPrediction):
+        y_true = eval_pred.label_ids
+        y_prob = eval_pred.predictions
+        return metrics(y_true, y_prob)
+
+    trainer = Trainer(
+        model=model,
+        compute_metrics=compute_metrics,
+        preprocess_logits_for_metrics=preprocess_logits_for_metrics
+    )
+
+    trainer.predict(datasets['test'])
+    #m = metrics(np.array(y_true, dtype=float), np.array(y_pred, dtype=float), 'test/')
+    metrics.dump(args.data_out_dir, None, None)
+    return 0

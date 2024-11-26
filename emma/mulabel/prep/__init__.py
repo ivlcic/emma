@@ -495,6 +495,7 @@ def prep_corpus_analyze(arg) -> int:
     """
     Analyses corpus multilabel data
     ./mulabel prep corpus_analyze -c 'mulabel_sl_p1_s0_article*.csv' --label_col labels
+    ./mulabel prep corpus_analyze -c 'mulabel_sl_p1_s0_article*.csv' --label_col labels
     ./mulabel prep corpus_analyze -c 'mulabel_sl_p1_s1_article*.csv' --label_col labels
     ./mulabel prep corpus_analyze -c 'map_articles*.csv' --label_col tags
     ./mulabel prep corpus_analyze -c 'eurlex*.csv' --label_col ml_label
