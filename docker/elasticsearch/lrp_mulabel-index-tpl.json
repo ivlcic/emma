@@ -44,6 +44,11 @@
           "type": "dense_vector",
           "dims": 1024,
           "similarity": "dot_product"
+        },
+        "m_jina3": {
+          "type": "dense_vector",
+          "dims": 1024,
+          "similarity": "dot_product"
         }
       }
     }

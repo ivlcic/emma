@@ -146,17 +146,19 @@ class SimilarParams:
     def __init__(self, collection: str, not_uuid: str, vector: List[float],
                  passage_targets: List[int] = None,
                  passage_cat: int = -1,
-                 size: int = 10):
+                 size: int = 10,
+                 ptm_name: str = 'bge_m3'):
         self.collection = collection
         self.size = size
         self.uuid = not_uuid
         self.vector = vector
         self.passage_targets = passage_targets
         self.passage_cat = passage_cat
+        self.ptm_name = ptm_name
 
 
 class State:
-    def __init__(self, item: Dict[str, Any], text_field: Optional[str] = None):
+    def __init__(self, item: Dict[str, Any], ptm_name: str = 'bge_m3', text_field: Optional[str] = None):
         self.item: Dict[str, Any] = item
         self.hit: Dict[str, Any] = {}
         self.hits: List[Dict[str, Any]] = []
@@ -168,6 +170,7 @@ class State:
         self.text: Optional[str] = item[text_field] if text_field is not None else None
         self.data: Dict[str, Any] = {}
         self.score: float = 0.0
+        self.ptm_name = ptm_name
 
     def set_text(self, text: str):
         self.text = text
@@ -190,7 +193,7 @@ class State:
 
 
 def find_similar(client: Elasticsearch, params: SimilarParams,
-                  state: State, item_callback: Callable[[State], bool]) -> int:
+                 state: State, item_callback: Callable[[State], bool]) -> int:
     query = {
         'size': params.size,
         'query': {
@@ -204,7 +207,7 @@ def find_similar(client: Elasticsearch, params: SimilarParams,
                 ],
                 'must': [{
                     'knn': {
-                        'field': 'm_bge_m3',
+                        'field': f'm_{params.ptm_name}',
                         'query_vector': params.vector,
                         'k': params.size * 2,
                         'num_candidates': params.size * 10

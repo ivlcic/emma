@@ -4,19 +4,22 @@ import logging
 from datetime import datetime
 
 from argparse import ArgumentParser
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Callable
 
 import numpy as np
 import pandas as pd
+import torch
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
 
 from FlagEmbedding import BGEM3FlagModel
 from tqdm import tqdm
+from transformers import AutoModel
 
 from ...core.args import CommonArguments
 from ...core.labels import MultilabelLabeler, Labeler
 from ...core.metrics import Metrics
+from ...core.models import retrieve_model_name_map
 from ...core.wandb import initialize_run
 from ..tokenizer import get_segmenter
 from ..utils import (__supported_languages, __supported_passage_sizes, __label_split_names, __label_splits,
@@ -63,6 +66,10 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
                                 f'You can use a comma separated list of {__supported_passage_sizes}',
         type=str,
     )
+    #parser.add_argument(
+    #    '--ptm_name', type=str, required=True,
+    #    help=f'Pretrained model name: {retrieve_model_name_map.keys()}'
+    #)
     parser.add_argument(
         '--run_id', type=int, help=f'Run id for marking consecutive runs.', default=0
     )
@@ -135,7 +142,8 @@ def _prepare_documents(coll: str, models, data_chunk):
     for data_item in data_chunk:
         # logger.info('Processing item [%s]', data_item)
         for model_name, model in models.items():
-            data_item['m_' + model_name] = model(data_item['text'])[0].tolist()
+            ret = model(data_item['text'])
+            data_item['m_' + model_name] = ret[0].tolist()
         op = {
             '_op_type': 'index',
             '_index': f'{coll}',
@@ -143,6 +151,35 @@ def _prepare_documents(coll: str, models, data_chunk):
             '_source': data_item
         }
         yield op
+
+
+def _init_ebd_models() -> Dict[str, Callable[[str], np.ndarray]]:
+    models = {}
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    for ptm_name, name in retrieve_model_name_map.items():
+        if ptm_name == 'bge_m3':
+
+            bmodel = BGEM3FlagModel(
+                name, use_fp16=True, device='cuda' if torch.cuda.is_available() else 'cpu'
+            )
+
+            def bge_m3_embed(text_to_embed: str):
+                return bmodel.encode([text_to_embed])['dense_vecs']
+
+            models[ptm_name] = bge_m3_embed
+
+        if ptm_name == 'jina3':
+            jmodel = AutoModel.from_pretrained(
+                "jinaai/jina-embeddings-v3", trust_remote_code=True
+            )
+            jmodel.to(device)
+
+            def jina3_embed(text_to_embed: str):
+                return jmodel.encode([text_to_embed], task='text-matching', show_progress_bar=False)
+
+            models[ptm_name] = jina3_embed
+
+    return models
 
 
 # noinspection DuplicatedCode
@@ -168,14 +205,8 @@ def es_pump(args) -> int:
     tokenizers = {}
     for lang in args.lang:
         tokenizers[lang] = get_segmenter(lang, args.tmp_dir)
-    bge_m3_model = BGEM3FlagModel('BAAI/bge-m3', use_fp16=True)
 
-    def bge_m3_embed(text_to_embed: str):
-        return bge_m3_model.encode([text_to_embed])['dense_vecs']
-
-    models = {
-        'bge_m3': bge_m3_embed
-    }
+    models = _init_ebd_models()
 
     data_as_dicts = _load_data(args, args.collection)
 
@@ -264,10 +295,10 @@ def es_dedup(args) -> int:
     return 0
 
 
-def _init_task(args, name, ptm_name, ptm_alias) -> Any:
+def _init_task(args, name) -> Any:
     os.environ['HF_HOME'] = args.tmp_dir  # local tmp dir
-    args.ptm_alias = 'bge_m3'
-    args.ptm_name = 'BAAI/bge-m3'
+    #args.ptm_alias = 'bge_m3'
+    #args.ptm_name = 'BAAI/bge-m3'
 
     tags = [
         args.collection_conf, args.ptm_name, args.collection
@@ -282,11 +313,10 @@ def _init_task(args, name, ptm_name, ptm_alias) -> Any:
     params = {
         'job_type': 'retrieval_test',
         'name': name,
-        'run_id': name + '_' + args.ptm_alias + '@' + str(args.run_id),
+        'run_id': name + '@' + str(args.run_id),
         'run_group': args.collection_conf,
         'tags': tags,
         'conf': {
-            'ptm_alias': args.ptm_name,
             'lang': args.lang_conf,
             'corpus': args.collection
         }
@@ -299,18 +329,6 @@ def _init_segmenters(args) -> Any:
     for lang in args.lang:
         tokenizers[lang] = get_segmenter(lang, args.tmp_dir)
     return tokenizers
-
-
-def _init_ebd_models(args) -> Any:
-    bge_m3_model = BGEM3FlagModel(args.ptm_name, use_fp16=True)
-
-    def bge_m3_embed(text_to_embed: str):
-        return bge_m3_model.encode([text_to_embed])['dense_vecs']
-
-    models = {
-        args.ptm_alias: bge_m3_embed
-    }
-    return models
 
 
 def _init_labeler(args) -> Labeler:
@@ -337,69 +355,81 @@ def load_labels(split_dir, corpus: str, splits: List[int], names: List[str]) -> 
 
 
 # noinspection DuplicatedCode
-def es_test_bge_m3(args) -> int:
+def es_test_zshot_ebd(args) -> int:
     """
-    ./mulabel es test_bge_m3 -c mulabel -l sl
-    ./mulabel es test_bge_m3 -c mulabel -l sl --public
-    ./mulabel es test_bge_m3 -c mulabel -l sl --public --seed_only
+    ./mulabel es test_zshot_ebd -c mulabel -l sl
+    ./mulabel es test_zshot_ebd -c mulabel -l sl --public
+    ./mulabel es test_zshot_ebd -c mulabel -l sl --public --seed_only
     """
     compute_arg_collection_name(args)
-    output_name = 'zshot_' + args.collection
-    run = _init_task(args, output_name, 'BAAI/bge-m3', 'bge_m3')
+    run = _init_task(args, 'zshot_' + args.collection)
     labeler = _init_labeler(args)
-    metrics = Metrics('zshot_' + args.collection, labeler.get_type_code())
-    models = _init_ebd_models(args)
-    model = models[args.ptm_alias]
+    models = _init_ebd_models()
+
+    metrics = {}
+    y_true = {}
+    y_pred = {}
+    for name in models:
+        metrics[name] = Metrics(f'zshot_{name}_{args.collection}', labeler.get_type_code())
+        y_true[name] = []
+        y_pred[name] = []
 
     train_coll_name = args.collection + '_train'
     test_coll_name = args.collection + '_test'
     data_as_dicts = _load_data(args, test_coll_name)
 
     target_indices = []
+    target_labels = {}
     if args.test_l_class != 'all':
         label_classes = load_labels(args.data_in_dir, args.collection, __label_splits, __label_split_names)
         target_labels = label_classes[args.test_l_class]
         target_indices = [labeler.encoder.classes_.tolist().index(label) for label in target_labels.keys()]
 
-    y_true = []
-    y_pred = []
     client = Elasticsearch(CLIENT_URL)
     try:
         if not client.indices.exists(index=train_coll_name):
             logger.warning('Collection [%s] does not exist.', train_coll_name)
             return 1
 
-        def on_similar(curr_state: State) -> bool:
-            y_pred.append(labeler.vectorize([curr_state.hit['label']])[0])
-            y_true.append(labeler.vectorize([curr_state.item["label"]])[0])
+        def on_similar(s: State) -> bool:
+            pred_list = [item for item in s.hit['label'] if len(target_labels) and item not in target_labels]
+            true_list = [item for item in s.item["label"] if len(target_labels) and item not in target_labels]
+            y_pred[s.ptm_name].append(labeler.vectorize([pred_list])[0])
+            y_true[s.ptm_name].append(labeler.vectorize([true_list])[0])
             return False
 
         for data_item in tqdm(data_as_dicts, desc='Processing zero shot complete eval.'):
-            state = State(data_item, 'text')
-            embedding = model(state.text)[0].tolist()
-            params = SimilarParams(train_coll_name, data_item['a_uuid'], embedding)
-            num_ret = find_similar(client, params, state, on_similar)
-            # if state['count'] > 100:
-            #    break
-            if num_ret == 0:
-                y_pred.append(labeler.vectorize([[]])[0])
+            label_list = [item for item in data_item["label"] if len(target_labels) and item not in target_labels]
+            if len(label_list) == 0 and len(data_item["label"]):  # we filtered out all labels with label feq. class
+                continue
+            states = {}
+            for model_name, model in models.items():
+                states[model_name] = State(data_item, model_name, 'text')
+                embedding = model(states[model_name].text)[0].tolist()
+                params = SimilarParams(train_coll_name, data_item['a_uuid'], embedding, ptm_name=model_name)
+                num_ret = find_similar(client, params, states[model_name], on_similar)
+                # if state['count'] > 100:
+                #    break
+                if num_ret == 0:
+                    y_pred[model_name].append(labeler.vectorize([[]])[0])
 
     finally:
         client.close()
 
-    y_true = np.array(y_true)
-    y_pred = np.array(y_pred)
+    for model_name in models:
+        y_true = np.array(y_true[model_name])
+        y_pred = np.array(y_pred[model_name])
 
-    if args.test_l_class != 'all':  # zero-out undesired labels
-        mask = np.zeros(y_true.shape[1], dtype=bool)
-        mask[target_indices] = True
-        y_true = y_true * mask
-        y_pred = y_pred * mask
+        if args.test_l_class != 'all':  # zero-out undesired labels
+            mask = np.zeros(y_true.shape[1], dtype=bool)
+            mask[target_indices] = True
+            y_true = y_true * mask
+            y_pred = y_pred * mask
 
-    m = metrics(np.array(y_true, dtype=float), np.array(y_pred, dtype=float), 'test/')
-    metrics.dump(args.data_result_dir, None, run)
-    if run is not None:
-        run.log(m)
+        m = metrics[model_name](y_true, y_pred, 'test/')
+        metrics[model_name].dump(args.data_result_dir, None, run)
+        if run is not None:
+            run.log(m)
 
     return 0
 

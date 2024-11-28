@@ -32,6 +32,11 @@ llm_model_name_map = {
     'llama3b': 'meta-llama/Llama-3.2-3B'
 }
 
+retrieve_model_name_map = {
+    'bge_m3': 'BAAI/bge-m3',
+    'jina3': 'jinaai/jina-embeddings-v3'
+}
+
 
 class Module(torch.nn.Module):
 
