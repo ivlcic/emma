@@ -19,8 +19,9 @@ from ...core.labels import MultilabelLabeler, Labeler
 from ...core.metrics import Metrics
 from ...core.wandb import initialize_run
 from ..tokenizer import get_segmenter
-from ..utils import (__supported_languages, __supported_passage_sizes, compute_arg_collection_name,
-                     load_add_corpus_part, parse_arg_passage_sizes)
+from ..utils import (__supported_languages, __supported_passage_sizes, __label_split_names, __label_splits,
+                     compute_arg_collection_name, load_add_corpus_part, parse_arg_passage_sizes,
+                     split_csv_by_frequency)
 from .utils import load_data, State, SimilarParams, find_similar, LabelStats, LabelDecider
 
 logger = logging.getLogger('mulabel.es')
@@ -67,6 +68,10 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
     )
     parser.add_argument(
         '--calib_max', type=int, help=f'Max number of labels to calibrate on.', default=-1
+    )
+    parser.add_argument(
+        '--test_l_class', type=str, help=f'Test specified label class.',
+        choices=['all'].extend(__label_split_names), default='all'
     )
 
 
@@ -325,6 +330,12 @@ def _init_labeler(args) -> Labeler:
     return labeler
 
 
+def load_labels(split_dir, corpus: str, splits: List[int], names: List[str]) -> Dict[str, Dict[str, int]]:
+    l_file_path = os.path.join(split_dir, f'{corpus}_labels.csv')
+    if os.path.exists(l_file_path):
+        return split_csv_by_frequency(l_file_path, splits, names)
+
+
 # noinspection DuplicatedCode
 def es_test_bge_m3(args) -> int:
     """
@@ -343,6 +354,12 @@ def es_test_bge_m3(args) -> int:
     train_coll_name = args.collection + '_train'
     test_coll_name = args.collection + '_test'
     data_as_dicts = _load_data(args, test_coll_name)
+
+    target_indices = []
+    if args.test_l_class != 'all':
+        label_classes = load_labels(args.data_in_dir, args.collection, __label_splits, __label_split_names)
+        target_labels = label_classes[args.test_l_class]
+        target_indices = [labeler.encoder.classes_.tolist().index(label) for label in target_labels.keys()]
 
     y_true = []
     y_pred = []
@@ -369,6 +386,15 @@ def es_test_bge_m3(args) -> int:
 
     finally:
         client.close()
+
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+
+    if args.test_l_class != 'all':  # zero-out undesired labels
+        mask = np.zeros(y_true.shape[1], dtype=bool)
+        mask[target_indices] = True
+        y_true = y_true * mask
+        y_pred = y_pred * mask
 
     m = metrics(np.array(y_true, dtype=float), np.array(y_pred, dtype=float), 'test/')
     metrics.dump(args.data_result_dir, None, run)

@@ -1,7 +1,9 @@
 import os
 import logging
-from typing import Any, Tuple
+from typing import Any, Tuple, Dict, List
 
+import numpy as np
+import pandas as pd
 import torch
 import random
 
@@ -16,8 +18,8 @@ from ...core.args import CommonArguments
 from ...core.models import valid_model_names, model_name_map
 from ...core.metrics import Metrics
 from ...core.wandb import initialize_run
-from ..utils import __supported_languages, compute_arg_collection_name, compute_model_output_name, load_train_data, \
-    construct_datasets
+from ..utils import (__supported_languages, __label_split_names, __label_splits, split_csv_by_frequency,
+                     compute_arg_collection_name, compute_model_output_name, load_train_data, construct_datasets)
 
 logger = logging.getLogger('mulabel.te_train')
 
@@ -64,6 +66,10 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
         '--ckpt', type=str,
         help='Path to a saved ckpt for continued training or evaluation'
              'e.g. bert_hyperpartisan_b8_e20_s3456_lr3e-05--epoch=17.ckpt'
+    )
+    parser.add_argument(
+        '--test_l_class', type=str, help=f'Test specified label class.',
+        choices=['all'].extend(__label_split_names), default='all'
     )
 
 
@@ -205,6 +211,12 @@ def te_train(args) -> int:
     return 0
 
 
+def load_labels(split_dir, corpus: str, splits: List[int], names: List[str]) -> Dict[str, Dict[str, int]]:
+    l_file_path = os.path.join(split_dir, f'{corpus}_labels.csv')
+    if os.path.exists(l_file_path):
+        return split_csv_by_frequency(l_file_path, splits, names)
+
+
 def te_test(args) -> int:
     """
     ./mulabel te test --ptm_name xlmrb_news_sl-p1s0_x0_b16_e30_s1425_lr3e-05 -c mulabel_sl_p1_s0_filtered_article
@@ -219,12 +231,23 @@ def te_test(args) -> int:
     ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s4823_lr3e-05 -c mulabel_sl_p1_s0
     ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s7352_lr3e-05 -c mulabel_sl_p1_s0
 
+    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s1710_lr3e-05 -c mulabel_sl_p1_s0 --test_l_class Rare
+    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s2573_lr3e-05 -c mulabel_sl_p1_s0 --test_l_class Rare
+    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s3821_lr3e-05 -c mulabel_sl_p1_s0 --test_l_class Rare
+    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s4823_lr3e-05 -c mulabel_sl_p1_s0 --test_l_class Rare
+    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s7352_lr3e-05 -c mulabel_sl_p1_s0 --test_l_class Rare
+
+    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s1710_lr3e-05 -c mulabel_sl_p1_s0 --test_l_class Frequent
+    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s2573_lr3e-05 -c mulabel_sl_p1_s0 --test_l_class Frequent
+    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s3821_lr3e-05 -c mulabel_sl_p1_s0 --test_l_class Frequent
+    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s4823_lr3e-05 -c mulabel_sl_p1_s0 --test_l_class Frequent
+    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s7352_lr3e-05 -c mulabel_sl_p1_s0 --test_l_class Frequent
+
     ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s2611_lr3e-05 -c eurlex_all_p0_s0
     ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s2963_lr3e-05 -c eurlex_all_p0_s0
     ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s4789_lr3e-05 -c eurlex_all_p0_s0
     ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s5823_lr3e-05 -c eurlex_all_p0_s0
     ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s7681_lr3e-05 -c eurlex_all_p0_s0
-
     """
     model_path = os.path.join(args.data_out_dir, 'test', args.ptm_name)
     if not os.path.exists(model_path):
@@ -256,19 +279,33 @@ def te_test(args) -> int:
             prob = torch.softmax(logits, dim=-1)
         return prob
 
-    metrics = Metrics(args.ptm_name, labeler.get_type_code(), avg_k)
+    metrics = Metrics(
+        args.ptm_name if args.test_l_class == 'all' else f'{args.ptm_name}_{args.test_l_class}',
+        labeler.get_type_code(), avg_k
+    )
+
+    target_indices = []
+    if args.test_l_class != 'all':
+        label_classes = load_labels(args.data_in_dir, args.corpus, __label_splits, __label_split_names)
+        target_labels = label_classes[args.test_l_class]
+        target_indices = [labeler.encoder.classes_.tolist().index(label) for label in target_labels.keys()]
 
     def compute_metrics(eval_pred: EvalPrediction):
         y_true = eval_pred.label_ids
         y_prob = eval_pred.predictions
-        return metrics(y_true, y_prob)
+        if args.test_l_class != 'all':  # zero-out undesired labels
+            mask = np.zeros(y_true.shape[1], dtype=bool)
+            mask[target_indices] = True
+            y_true = y_true * mask
+            y_prob = y_prob * mask
+        return metrics(y_true, y_prob, 'test/')
 
     trainer = Trainer(
         model=model,
         compute_metrics=compute_metrics,
         preprocess_logits_for_metrics=preprocess_logits_for_metrics
     )
-
+    print(f'{len(datasets["test"])}')
     trainer.predict(datasets['test'])
     #m = metrics(np.array(y_true, dtype=float), np.array(y_pred, dtype=float), 'test/')
     metrics.dump(args.data_out_dir, None, None)

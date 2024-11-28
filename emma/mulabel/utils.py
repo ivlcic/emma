@@ -19,6 +19,8 @@ __supported_languages = [
 
 __supported_passage_sizes = [1, 3, 5, 7, 9]
 
+__label_splits = [10, 500]
+__label_split_names = ['Rare', 'Other', 'Frequent']
 
 def compute_arg_collection_name(arg):
     arg.collection_conf = arg.collection
@@ -377,3 +379,58 @@ def construct_datasets(text_set, label_set, tokenizer, max_len: int = 512) -> Tu
     average_labels_per_sample /= 3
     avg_k = round(average_labels_per_sample)
     return datasets, avg_k
+
+
+def split_csv_by_frequency(file_path, splits, category_names=None):
+    """
+    Splits CSV data from a file into dictionaries based on frequency thresholds and custom category names.
+
+    Args:
+        file_path (str): The path to the input CSV file.
+        splits (list): A list of integers representing frequency thresholds.
+                       Example: [10, 500] creates three categories:
+                       <=10, between 11 and 499, and >=500.
+        category_names (list): A list of strings representing custom names for the categories.
+                               Must have one more name than the number of splits.
+                               Example: ["Low", "Medium", "High"] for splits [10, 500].
+
+    Returns:
+        dict: A dictionary with custom keys (or auto-generated ones) and values as dictionaries of label-count pairs.
+    """
+    # Sort the splits to ensure correct categorization
+    splits = sorted(splits)
+
+    # Validate category_names if provided
+    if category_names:
+        if len(category_names) != len(splits) + 1:
+            raise ValueError("The number of category names must be one more than the number of splits.")
+    else:
+        # Generate default category names if none are provided
+        category_names = [f"<= {splits[0]}"] + \
+                         [f"{splits[i] + 1} - {splits[i + 1]}" for i in range(len(splits) - 1)] + \
+                         [f">= {splits[-1]}"]
+
+    # Prepare result containers
+    categories = {name: {} for name in category_names}
+
+    # Read the CSV file
+    with open(file_path, 'r') as file:
+        reader = csv.DictReader(file)
+
+        # Categorize each row based on the count value
+        for row in reader:
+            label = row['label']
+            count = int(row['count'])
+
+            # Determine which category the count falls into
+            if count <= splits[0]:
+                categories[category_names[0]][label] = count
+            elif count >= splits[-1]:
+                categories[category_names[-1]][label] = count
+            else:
+                for i in range(len(splits) - 1):
+                    if splits[i] < count <= splits[i + 1]:
+                        categories[category_names[i + 1]][label] = count
+                        break
+
+    return categories
