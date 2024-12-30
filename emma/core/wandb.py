@@ -1,7 +1,5 @@
 import os
-from typing import Any, Dict, List, Optional
-
-import pandas as pd
+from typing import Any, Dict, List
 
 
 def initialize_run(job_type: str, name: str, run_group: str, run_id: str,
@@ -10,6 +8,10 @@ def initialize_run(job_type: str, name: str, run_group: str, run_id: str,
         conf = {}
     api_key = os.getenv('WANDB_API_KEY')
     if api_key is None:
+        os.environ['WANDB_DISABLED'] = 'true'
+        os.environ['WANDB_MODE'] = 'disabled'
+        import wandb
+        wandb.init(mode='disabled')
         return None
 
     import wandb

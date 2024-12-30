@@ -248,6 +248,18 @@ def te_test(args) -> int:
     ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s4789_lr3e-05 -c eurlex_all_p0_s0
     ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s5823_lr3e-05 -c eurlex_all_p0_s0
     ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s7681_lr3e-05 -c eurlex_all_p0_s0
+
+    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s2611_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Rare
+    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s2963_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Rare
+    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s4789_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Rare
+    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s5823_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Rare
+    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s7681_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Rare
+
+    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s2611_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Frequent
+    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s2963_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Frequent
+    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s4789_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Frequent
+    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s5823_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Frequent
+    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s7681_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Frequent
     """
     model_path = os.path.join(args.data_out_dir, 'test', args.ptm_name)
     if not os.path.exists(model_path):
@@ -285,19 +297,25 @@ def te_test(args) -> int:
     )
 
     target_indices = []
+    filter_labels = False
     if args.test_l_class != 'all':
         label_classes = load_labels(args.data_in_dir, args.corpus, __label_splits, __label_split_names)
         target_labels = label_classes[args.test_l_class]
         target_indices = [labeler.encoder.classes_.tolist().index(label) for label in target_labels.keys()]
+        filter_labels = True
 
     def compute_metrics(eval_pred: EvalPrediction):
         y_true = eval_pred.label_ids
         y_prob = eval_pred.predictions
-        if args.test_l_class != 'all':  # zero-out undesired labels
+        if filter_labels:  # zero-out undesired labels
             mask = np.zeros(y_true.shape[1], dtype=bool)
             mask[target_indices] = True
             y_true = y_true * mask
             y_prob = y_prob * mask
+            # exclude samples with all zeros in y_true
+            mask_non_zero = ~np.all(y_true == 0, axis=1)
+            y_true = y_true[mask_non_zero]
+            y_prob = y_prob[mask_non_zero]
         return metrics(y_true, y_prob, 'test/')
 
     trainer = Trainer(

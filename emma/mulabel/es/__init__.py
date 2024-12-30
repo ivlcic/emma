@@ -170,7 +170,7 @@ def _init_ebd_models() -> Dict[str, Callable[[str], np.ndarray]]:
 
         if ptm_name == 'jina3':
             jmodel = AutoModel.from_pretrained(
-                "jinaai/jina-embeddings-v3", trust_remote_code=True
+                name, trust_remote_code=True
             )
             jmodel.to(device)
 
@@ -298,7 +298,7 @@ def es_dedup(args) -> int:
 def _init_task(args, name) -> Any:
     os.environ['HF_HOME'] = args.tmp_dir  # local tmp dir
     #args.ptm_alias = 'bge_m3'
-    #args.ptm_name = 'BAAI/bge-m3'
+    args.ptm_name = 'embedding'
 
     tags = [
         args.collection_conf, args.ptm_name, args.collection
@@ -366,11 +366,15 @@ def es_test_zshot_ebd(args) -> int:
     labeler = _init_labeler(args)
     models = _init_ebd_models()
 
+    suffix = ''
+    if args.test_l_class != 'all':
+        suffix = '_' + args.test_l_class
+
     metrics = {}
     y_true = {}
     y_pred = {}
     for name in models:
-        metrics[name] = Metrics(f'zshot_{name}_{args.collection}', labeler.get_type_code())
+        metrics[name] = Metrics(f'zshot_{name}_{args.collection}{suffix}', labeler.get_type_code())
         y_true[name] = []
         y_pred[name] = []
 
@@ -380,10 +384,12 @@ def es_test_zshot_ebd(args) -> int:
 
     target_indices = []
     target_labels = {}
+    filter_labels = False
     if args.test_l_class != 'all':
         label_classes = load_labels(args.data_in_dir, args.collection, __label_splits, __label_split_names)
         target_labels = label_classes[args.test_l_class]
         target_indices = [labeler.encoder.classes_.tolist().index(label) for label in target_labels.keys()]
+        filter_labels = True
 
     client = Elasticsearch(CLIENT_URL)
     try:
@@ -392,41 +398,52 @@ def es_test_zshot_ebd(args) -> int:
             return 1
 
         def on_similar(s: State) -> bool:
-            pred_list = [item for item in s.hit['label'] if len(target_labels) and item not in target_labels]
-            true_list = [item for item in s.item["label"] if len(target_labels) and item not in target_labels]
+            if filter_labels:
+                pred_list = [item for item in s.hit['label'] if item in target_labels]
+                true_list = [item for item in s.item["label"] if item in target_labels]
+            else:
+                pred_list = s.hit['label']
+                true_list = s.item["label"]
             y_pred[s.ptm_name].append(labeler.vectorize([pred_list])[0])
             y_true[s.ptm_name].append(labeler.vectorize([true_list])[0])
             return False
 
+        # count = 0
         for data_item in tqdm(data_as_dicts, desc='Processing zero shot complete eval.'):
-            label_list = [item for item in data_item["label"] if len(target_labels) and item not in target_labels]
-            if len(label_list) == 0 and len(data_item["label"]):  # we filtered out all labels with label feq. class
-                continue
+            if filter_labels:
+                label_list = [item for item in data_item["label"] if item in target_labels]
+                if len(label_list) == 0 and len(data_item["label"]):
+                    continue  # we filtered out all labels not in desired class => exclude sample from metrics
             states = {}
             for model_name, model in models.items():
                 states[model_name] = State(data_item, model_name, 'text')
                 embedding = model(states[model_name].text)[0].tolist()
                 params = SimilarParams(train_coll_name, data_item['a_uuid'], embedding, ptm_name=model_name)
                 num_ret = find_similar(client, params, states[model_name], on_similar)
-                # if state['count'] > 100:
-                #    break
                 if num_ret == 0:
                     y_pred[model_name].append(labeler.vectorize([[]])[0])
+            # if count > 100:
+            #     break
+            # count += 1
 
     finally:
         client.close()
 
     for model_name in models:
-        y_true = np.array(y_true[model_name])
-        y_pred = np.array(y_pred[model_name])
+        y_true_m = np.array(y_true[model_name])
+        y_pred_m = np.array(y_pred[model_name])
 
-        if args.test_l_class != 'all':  # zero-out undesired labels
-            mask = np.zeros(y_true.shape[1], dtype=bool)
+        if filter_labels:  # keep only desired labels and zero-out undesired labels
+            mask = np.zeros(y_true_m.shape[1], dtype=bool)
             mask[target_indices] = True
-            y_true = y_true * mask
-            y_pred = y_pred * mask
+            y_true_m = y_true_m * mask
+            y_pred_m = y_pred_m * mask
+            # Exclude samples with all zeros in y_true
+            mask_non_zero = ~np.all(y_true_m == 0, axis=1)
+            y_true_m = y_true_m[mask_non_zero]
+            y_pred_m = y_pred_m[mask_non_zero]
 
-        m = metrics[model_name](y_true, y_pred, 'test/')
+        m = metrics[model_name](y_true_m, y_pred_m, 'test/')
         metrics[model_name].dump(args.data_result_dir, None, run)
         if run is not None:
             run.log(m)
