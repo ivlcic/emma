@@ -3,6 +3,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import List, Optional, Any
 
+from numpy import ndarray
 from sklearn.preprocessing import MultiLabelBinarizer, LabelBinarizer, LabelEncoder
 
 logger = logging.getLogger('core.labels')
@@ -36,6 +37,13 @@ class Labeler(ABC):
             self.fit()
 
         result = self.encoder.transform(labels)
+        return result
+
+    def unvectorize(self, vector: ndarray) -> List:
+        if not self.computed:
+            self.fit()
+
+        result = self.encoder.inverse_transform(vector)
         return result
 
     def labels_to_ids(self):
