@@ -1,7 +1,7 @@
 import logging
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Union
 
 from numpy import ndarray
 from sklearn.preprocessing import MultiLabelBinarizer, LabelBinarizer, LabelEncoder
@@ -32,7 +32,7 @@ class Labeler(ABC):
     def get_type_code(self):
         pass
 
-    def vectorize(self, labels: List) -> List:
+    def vectorize(self, labels: Union[List, ndarray]) -> List:
         if not self.computed:
             self.fit()
 
@@ -101,6 +101,13 @@ class MultilabelLabeler(Labeler):
 
     def get_type_code(self):
         return 'multilabel'
+
+    def unvectorize(self, vector: ndarray) -> List:
+        inverse_result = super().unvectorize(vector)
+
+        if len(inverse_result) == 1:  # Check if there's only one tuple in the list the return single list
+            return list(inverse_result[0])
+        return inverse_result
 
 
 Labeler.valid_type_codes = [

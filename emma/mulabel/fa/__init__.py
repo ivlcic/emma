@@ -348,6 +348,21 @@ def fa_init_rae_v(args) -> int:
     return 0
 
 
+def _filter_data_labels(labeler: Labeler, data_items, target_indices, filter_labels):
+    texts = [item['text'] for item in data_items]
+    labels = [item['label'] for item in data_items]
+    yl_true = np.array(labeler.vectorize(labels))
+    mask = np.zeros(labeler.num_labels, dtype=bool)
+    if filter_labels:  # keep only desired labels and zero-out undesired labels
+        mask[target_indices] = True
+        yl_true = yl_true * mask
+        mask_non_zero = ~np.all(yl_true == 0, axis=1)
+        texts = [value for idx, value in enumerate(texts) if mask_non_zero[idx]]
+        yl_true = yl_true[mask_non_zero]
+
+    return texts, yl_true, mask
+
+
 # noinspection DuplicatedCode
 def fa_test_rae(args) -> int:
     """
@@ -376,7 +391,6 @@ def fa_test_rae(args) -> int:
     data_as_dicts = _load_data(args, test_coll_name)
 
     target_indices = []
-    target_labels = {}
     filter_labels = False
     if args.test_l_class != 'all':
         label_classes = _load_labels(args.data_in_dir, args.collection, __label_splits, __label_split_names)
@@ -385,82 +399,81 @@ def fa_test_rae(args) -> int:
         filter_labels = True
 
     index_path = _get_index_path(args)
+    # static model data
     model_data = {}
     for model_name, model in models.items():
+        t0 = time.time()
         model_data[model_name] = {}
         x_data = np.load(index_path + '.' + model_name + '_x.npz')  # knowledge input embeddings matrix
-        v_data = np.load(index_path + '.' + model_name + '_v.npz')  # knowledge label descr embeddings matrix
+        v_data = {'embeddings': np.array([]), 'y_id': np.array([])}
+        v_data_path = index_path + '.' + model_name + '_v.npz'
+        if os.path.exists(v_data_path):
+            v_data = np.load(v_data_path)  # knowledge label descr embeddings matrix
+        model_data[model_name]['x_data'] = x_data
+        model_data[model_name]['v_data'] = v_data
+
         k_embeddings = np.vstack([x_data['embeddings'], v_data['embeddings']])  # knowledge embeddings matrix
-        lamb = 0.5
-        k_v = np.vstack([x_data['y_true'] * lamb, v_data['y_id'] * (1 - lamb)])  # knowledge values matrix
-        dim = np.shape(k_embeddings)[1]
-        l_dim = np.shape(v_data['embeddings'])[0]
-        x_dim = np.shape(x_data['embeddings'])[0]
         k_dim = np.shape(k_embeddings)[0]
+        model_data[model_name]['embedder'] = model
+
+        dim = np.shape(k_embeddings)[1]
         index = faiss.IndexHNSWFlat(dim, 64)
         index.hnsw.efConstruction = 500  # Controls index construction accuracy/speed trade-off
         index.hnsw.efSearch = 300  # Controls search accuracy/speed trade-off
         index.add(k_embeddings)
-
-        t0 = time.time()
+        model_data[model_name]['embedder'] = model
         model_data[model_name]['dim'] = dim
         model_data[model_name]['k_dim'] = k_dim
-        model_data[model_name]['x_dim'] = x_dim
-        model_data[model_name]['l_dim'] = l_dim
-        model_data[model_name]['embedder'] = model
-        model_data[model_name]['temp'] = 1 / math.sqrt(dim)  # 0.001
-        model_data[model_name]['inputs'] = x_data
         model_data[model_name]['index'] = index
-        model_data[model_name]['values'] = torch.from_numpy(k_v.astype(np.float32))
-        logger.info(f"Trained index_X in {time.time() - t0:8.2f} seconds")
+        logger.info(f'Loaded {model_name} data in {(time.time() - t0):8.2f} seconds')
 
-    # count = 0
-    for data_item in tqdm(data_as_dicts, desc='Processing zero shot complete eval.'):
-        if filter_labels:
-            label_list = [item for item in data_item["label"] if item in target_labels]
-            if len(label_list) == 0 and len(data_item["label"]):
-                continue  # we filtered out all labels not in desired class => exclude sample from metrics
+    # subject to grid search
+    lamb = 0.5
+    topk = 100  # Number of nearest neighbors to retrieve
+    for m_name, m_item in model_data.items():
+        # knowledge values matrix
+        k_v = np.vstack([m_item['x_data']['y_true'] * lamb, m_item['v_data']['y_id'] * (1 - lamb)])
+        m_item['temperature'] = 1 / math.sqrt(m_item['dim'])  # 1 / sqrt(dim)
+        m_item['topk'] = topk
+        m_item['values'] = torch.from_numpy(k_v.astype(np.float32))
+
+    t1 = time.time()
+    for chunk in tqdm(_chunk_data(data_as_dicts, chunk_size=64), desc='Processing RAE-XML complete eval.'):
+        texts, yl_true, mask = _filter_data_labels(labeler, chunk, target_indices, filter_labels)
+        if len(texts) == 0:
+            continue
+
         for model_name, data in model_data.items():
-            query_vector = data['embedder'](data_item['text'])
-            query_vector = query_vector.reshape(1, -1).astype(np.float32)  # 2D vector
+            # Generate embeddings for the batch of texts
+            query_vectors = data['embedder'](texts)  # Assuming the embedder supports batch processing
+            query_vectors = query_vectors.astype(np.float32)  # Ensure correct dtype
 
-            temperature = model_data[model_name]['temp']
-            topk = 100  # Number of nearest neighbors to retrieve
+            # Search for the topk nearest neighbors for all query vectors in the batch
+            sim, indices = data['index'].search(query_vectors, data['topk'])  # Batched search
+            # Convert similarities to probabilities using softmax
+            sim = F.softmax(torch.from_numpy(-sim / data['temperature']), dim=-1)
+            # Initialize qKT tensor for the batch
+            batch_size = len(texts)
+            qKT = torch.zeros((batch_size, data['k_dim']), dtype=torch.float32)
+            # Assign values to specific indices for each item in the batch
+            for i in range(batch_size):
+                qKT[i, indices[i]] = sim[i]
 
-            # Search for the topk nearest neighbors
-            sim, indices = data['index'].search(query_vector, topk)
-            sim = F.softmax(torch.from_numpy(-sim / temperature), dim=-1)
-            qKT = torch.zeros((1, data['k_dim']), dtype=torch.float32)
-            # Assign values to specific indices where batch size is 1 (first index = 0)
-            qKT[0, indices] = sim
+            # Compute probabilities using matrix multiplication
             probabilities = torch.matmul(qKT, data['values'])
-            yl_pred = labeler.unvectorize((probabilities > 0.2).int().numpy())
-            yl_true = data_item["label"]
-
+            yl_pred = (probabilities > 0.2).int().numpy()
+            # Un-vectorize predictions and collect results
             if filter_labels:
-                pred_list = [item for item in yl_pred if item in target_labels]
-                true_list = [item for item in yl_true if item in target_labels]
-            else:
-                pred_list = yl_pred
-                true_list = yl_true
-            y_pred[model_name].append(labeler.vectorize([pred_list])[0])
-            y_true[model_name].append(labeler.vectorize([true_list])[0])
+                yl_pred = yl_pred * mask
+            y_pred[model_name].extend(yl_pred)
+            y_true[model_name].extend(yl_true)
 
+    logger.info(f'Measured performance in {(time.time() - t1):8.2f} seconds')
+    logger.info(f'Computing metrics')
     for model_name in models:
         y_true_m = np.array(y_true[model_name])
         y_pred_m = np.array(y_pred[model_name])
-
-        if filter_labels:  # keep only desired labels and zero-out undesired labels
-            mask = np.zeros(y_true_m.shape[1], dtype=bool)
-            mask[target_indices] = True
-            y_true_m = y_true_m * mask
-            y_pred_m = y_pred_m * mask
-            # Exclude samples with all zeros in y_true
-            mask_non_zero = ~np.all(y_true_m == 0, axis=1)
-            y_true_m = y_true_m[mask_non_zero]
-            y_pred_m = y_pred_m[mask_non_zero]
-
         metrics[model_name](y_true_m, y_pred_m, 'test/')
         metrics[model_name].dump(args.data_result_dir, None, None)
-
+    logger.info(f'Computation done in {(time.time() - t0):8.2f} seconds')
     return 0
