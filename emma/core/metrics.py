@@ -70,9 +70,9 @@ class Metrics:
         self.avg_k = avg_k
 
     # noinspection DuplicatedCode
-    def __call__(self, y_true: np.ndarray, y_prob: np.ndarray, prefix: str = ''):
+    def __call__(self, y_true: np.ndarray, y_prob: np.ndarray, prefix: str = '', prob_threshold: float = 0.5):
         if self.prob_type == 'multilabel':
-            y_pred = (y_prob > 0.5).astype(np.float32)
+            y_pred = (y_prob > prob_threshold).astype(np.float32)
         else:
             y_pred = np.argmax(y_prob, axis=-1)
         metric = {}
@@ -94,13 +94,23 @@ class Metrics:
         self.log_epochs.append(metric)
         return metric
 
-    def dump(self, result_path: str, meta_data: Optional[Dict[str, Any]], task: Optional[Any] = None):
+    def dump(self, result_path: str, meta_data: Optional[Dict[str, Any]], task: Optional[Any] = None,
+             multiplier: int = 1):
         mdf = pd.DataFrame(self.log_epochs)
         mdf_file = os.path.join(result_path, self.model_name + '_metrics.csv')
         mdf.to_csv(mdf_file)
         if meta_data is None:
             meta_data = {}
-        result = {'epochs': self.log_epochs, 'model_name': self.model_name} | meta_data
+        if multiplier != 1:
+            log_epochs = []
+            for epoch in self.log_epochs:
+                e = {}
+                for k, v in epoch.items():
+                    e[k] = v * multiplier
+                log_epochs.append(e)
+        else:
+            log_epochs = self.log_epochs
+        result = {'epochs': log_epochs, 'model_name': self.model_name} | meta_data
         json_file = os.path.join(result_path, self.model_name + '_metrics.json')
         with open(json_file, 'w', encoding='utf-8') as fp:
             json.dump(result, fp, ensure_ascii=False, indent=2, sort_keys=False)

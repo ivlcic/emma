@@ -17,14 +17,13 @@ from tqdm import tqdm
 from transformers import AutoModel
 
 from ...core.args import CommonArguments
-from ...core.labels import MultilabelLabeler, Labeler
 from ...core.metrics import Metrics
 from ...core.models import retrieve_model_name_map
 from ...core.wandb import initialize_run
 from ..tokenizer import get_segmenter
-from ..utils import (__supported_languages, __supported_passage_sizes, __label_split_names, __label_splits,
+from ..utils import (__supported_languages, __supported_passage_sizes, __label_split_names,
                      compute_arg_collection_name, load_add_corpus_part, parse_arg_passage_sizes,
-                     split_csv_by_frequency)
+                     init_labeler, filter_metrics)
 from .utils import load_data, State, SimilarParams, find_similar, LabelStats, LabelDecider
 
 logger = logging.getLogger('mulabel.es')
@@ -331,29 +330,6 @@ def _init_segmenters(args) -> Any:
     return tokenizers
 
 
-def _init_labeler(args) -> Labeler:
-    labels_file_name = os.path.join(args.data_in_dir, f'{args.collection}_labels.csv')
-    if not os.path.exists(labels_file_name) and 'lrp' in args.collection:
-        tmp = args.collection.replace('lrp_', '')
-        labels_file_name = os.path.join(args.data_in_dir, f'{tmp}_labels.csv')
-        if not os.path.exists(labels_file_name) and 'lrp' in args.collection:
-            raise ValueError(f'Missing labels file [{labels_file_name}]')
-
-    with open(labels_file_name, 'r') as l_file:
-        all_labels = [line.split(',')[0].strip() for line in l_file]
-    if all_labels[0] == 'label':
-        all_labels.pop(0)
-    labeler = MultilabelLabeler(all_labels)
-    labeler.fit()
-    return labeler
-
-
-def load_labels(split_dir, corpus: str, splits: List[int], names: List[str]) -> Dict[str, Dict[str, int]]:
-    l_file_path = os.path.join(split_dir, f'{corpus}_labels.csv')
-    if os.path.exists(l_file_path):
-        return split_csv_by_frequency(l_file_path, splits, names)
-
-
 # noinspection DuplicatedCode
 def es_test_zshot_ebd(args) -> int:
     """
@@ -363,7 +339,7 @@ def es_test_zshot_ebd(args) -> int:
     """
     compute_arg_collection_name(args)
     run = _init_task(args, 'zshot_' + args.collection)
-    labeler = _init_labeler(args)
+    labeler = init_labeler(args)
     models = _init_ebd_models()
 
     suffix = ''
@@ -382,15 +358,6 @@ def es_test_zshot_ebd(args) -> int:
     test_coll_name = args.collection + '_test'
     data_as_dicts = _load_data(args, test_coll_name)
 
-    target_indices = []
-    target_labels = {}
-    filter_labels = False
-    if args.test_l_class != 'all':
-        label_classes = load_labels(args.data_in_dir, args.collection, __label_splits, __label_split_names)
-        target_labels = label_classes[args.test_l_class]
-        target_indices = [labeler.encoder.classes_.tolist().index(label) for label in target_labels.keys()]
-        filter_labels = True
-
     client = Elasticsearch(CLIENT_URL)
     try:
         if not client.indices.exists(index=train_coll_name):
@@ -398,22 +365,12 @@ def es_test_zshot_ebd(args) -> int:
             return 1
 
         def on_similar(s: State) -> bool:
-            if filter_labels:
-                pred_list = [item for item in s.hit['label'] if item in target_labels]
-                true_list = [item for item in s.item["label"] if item in target_labels]
-            else:
-                pred_list = s.hit['label']
-                true_list = s.item["label"]
-            y_pred[s.ptm_name].append(labeler.vectorize([pred_list])[0])
-            y_true[s.ptm_name].append(labeler.vectorize([true_list])[0])
+            y_pred[s.ptm_name].append(labeler.vectorize([s.hit['label']])[0])
+            y_true[s.ptm_name].append(labeler.vectorize([s.item["label"]])[0])
             return False
 
         # count = 0
         for data_item in tqdm(data_as_dicts, desc='Processing zero shot complete eval.'):
-            if filter_labels:
-                label_list = [item for item in data_item["label"] if item in target_labels]
-                if len(label_list) == 0 and len(data_item["label"]):
-                    continue  # we filtered out all labels not in desired class => exclude sample from metrics
             states = {}
             for model_name, model in models.items():
                 states[model_name] = State(data_item, model_name, 'text')
@@ -430,19 +387,7 @@ def es_test_zshot_ebd(args) -> int:
         client.close()
 
     for model_name in models:
-        y_true_m = np.array(y_true[model_name])
-        y_pred_m = np.array(y_pred[model_name])
-
-        if filter_labels:  # keep only desired labels and zero-out undesired labels
-            mask = np.zeros(y_true_m.shape[1], dtype=bool)
-            mask[target_indices] = True
-            y_true_m = y_true_m * mask
-            y_pred_m = y_pred_m * mask
-            # Exclude samples with all zeros in y_true
-            mask_non_zero = ~np.all(y_true_m == 0, axis=1)
-            y_true_m = y_true_m[mask_non_zero]
-            y_pred_m = y_pred_m[mask_non_zero]
-
+        y_true_m, y_pred_m = filter_metrics(args, labeler, y_true[model_name], y_pred[model_name])
         m = metrics[model_name](y_true_m, y_pred_m, 'test/')
         metrics[model_name].dump(args.data_result_dir, None, run)
         if run is not None:
@@ -456,7 +401,7 @@ def es_calibrate_lrp_bge_m3(args) -> int:
     parse_arg_passage_sizes(args)
     output_name = f'{args.collection}_calib'
     run = _init_task(args, output_name, 'BAAI/bge-m3', 'bge_m3')
-    labeler = _init_labeler(args)
+    labeler = init_labeler(args)
     models = _init_ebd_models(args)
     model = models[args.ptm_alias]
 
@@ -557,7 +502,7 @@ def es_test_lrp_bge_m3(args) -> int:
 
     output_name = f'zshot_{passage_size}_' + args.collection
     run = _init_task(args, output_name, 'BAAI/bge-m3', 'bge_m3')
-    labeler = _init_labeler(args)
+    labeler = init_labeler(args)
     metrics = Metrics(output_name, labeler.get_type_code())
 
     segmenters = _init_segmenters(args)
@@ -630,7 +575,6 @@ def es_test_lrp_bge_m3(args) -> int:
 
             # params = SimilarParams(train_coll, data_item['a_uuid'], doc_embed, passage_cat=0)
             # find_similar(client, params, state, on_similar)
-
             pred_labels = state.data['label']
             true_labels = decider.calibrated.keys()
             y_pred.append(labeler.vectorize([pred_labels])[0])
@@ -639,6 +583,7 @@ def es_test_lrp_bge_m3(args) -> int:
     finally:
         client.close()
 
+    y_true, y_pred = filter_metrics(args, labeler, y_true, y_pred)
     m = metrics(np.array(y_true, dtype=float), np.array(y_pred, dtype=float), 'test/')
     metrics.dump(args.data_result_dir, None, run)
     if run is not None:

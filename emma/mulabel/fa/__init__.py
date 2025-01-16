@@ -17,17 +17,19 @@ from FlagEmbedding import BGEM3FlagModel
 import torch.nn.functional as F
 from tqdm import tqdm
 from transformers import AutoModel
+from skmultilearn.adapt import MLkNN
 
 
+from ..gte import GTEEmbedding
+from ..kalm import KaLMEmbedding
 from ...core.args import CommonArguments
-from ...core.labels import MultilabelLabeler, Labeler
+from ...core.labels import Labeler
 from ...core.metrics import Metrics
 from ...core.models import retrieve_model_name_map
-from ...core.wandb import initialize_run
 from ..tokenizer import get_segmenter
 from ..utils import (__supported_languages, __supported_passage_sizes, __label_split_names, __label_splits,
-                     compute_arg_collection_name, load_add_corpus_part, parse_arg_passage_sizes,
-                     split_csv_by_frequency)
+                     compute_arg_collection_name, load_add_corpus_part, load_labels,
+                     init_labeler, filter_metrics)
 
 logger = logging.getLogger('mulabel.fa')
 
@@ -73,6 +75,12 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
         '--test_l_class', type=str, help=f'Test specified label class.',
         choices=['all'].extend(__label_split_names), default='all'
     )
+    parser.add_argument(
+        '--ptm_models',
+        help=f'Use only ptm_models (filter everything else out). '
+             f'You can use a comma separated list of {retrieve_model_name_map.keys()}',
+        type=str,
+    )
 
 
 # noinspection DuplicatedCode
@@ -100,12 +108,17 @@ def _init_segmenters(args) -> Any:
     return tokenizers
 
 
-# noinspection DuplicatedCode
-def _init_ebd_models() -> Dict[str, Callable[[Union[str, List[str]]], np.ndarray]]:
+def _init_ebd_models(args) -> Dict[str, Callable[[Union[str, List[str]]], np.ndarray]]:
     logger.info(f'Loading embedding models ...')
+    if 'ptm_models' not in args or not args.ptm_models:
+        args.ptm_models = retrieve_model_name_map.keys()
+    else:
+        args.ptm_models = args.ptm_models.split(',')
     models = {}
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     for ptm_name, name in retrieve_model_name_map.items():
+        if ptm_name not in args.ptm_models:
+            continue
         if ptm_name == 'bge_m3':
 
             bmodel = BGEM3FlagModel(
@@ -128,31 +141,25 @@ def _init_ebd_models() -> Dict[str, Callable[[Union[str, List[str]]], np.ndarray
 
             models[ptm_name] = jina3_embed
 
+        if ptm_name == 'gte':
+            gmodel = GTEEmbedding(name)
+
+            # noinspection PyTypeChecker
+            def gte_embed(text_to_embed: Union[str, List[str]]):
+                return gmodel.encode(text_to_embed)['dense_embeddings']
+
+            models[ptm_name] = gte_embed
+
+        if ptm_name == 'kalm_v15':
+            kmodel = KaLMEmbedding(name)
+
+            # noinspection PyTypeChecker
+            def kalm_embed(text_to_embed: Union[str, List[str]]):
+                return kmodel.encode(text_to_embed)['dense_embeddings']
+
+            models[ptm_name] = kalm_embed
+
     return models
-
-
-# noinspection DuplicatedCode
-def _init_labeler(args) -> Labeler:
-    labels_file_name = os.path.join(args.data_in_dir, f'{args.collection}_labels.csv')
-    if not os.path.exists(labels_file_name) and 'lrp' in args.collection:
-        tmp = args.collection.replace('lrp_', '')
-        labels_file_name = os.path.join(args.data_in_dir, f'{tmp}_labels.csv')
-        if not os.path.exists(labels_file_name) and 'lrp' in args.collection:
-            raise ValueError(f'Missing labels file [{labels_file_name}]')
-
-    with open(labels_file_name, 'r') as l_file:
-        all_labels = [line.split(',')[0].strip() for line in l_file]
-    if all_labels[0] == 'label':
-        all_labels.pop(0)
-    labeler = MultilabelLabeler(all_labels)
-    labeler.fit()
-    return labeler
-
-
-def _load_labels(split_dir, corpus: str, splits: List[int], names: List[str]) -> Dict[str, Dict[str, int]]:
-    l_file_path = os.path.join(split_dir, f'{corpus}_labels.csv')
-    if os.path.exists(l_file_path):
-        return split_csv_by_frequency(l_file_path, splits, names)
 
 
 def __find_label_in_text(kwes: List[str], doc) -> List[str]:
@@ -207,7 +214,7 @@ def fa_init_pseudo_labels(args) -> int:
                 else:
                     label_dict[label]['texts'].append(item['text'])
 
-    labeler = _init_labeler(args)
+    labeler = init_labeler(args)
     labels_df_data = []
     for id, label in labeler.ids_to_labels().items():
         if label not in label_dict:
@@ -232,15 +239,15 @@ def _get_index_path(args) -> LiteralString | str | bytes:
     return index_path
 
 
-def fa_init_rae_x(args) -> int:
+def fa_init_embed(args) -> int:
     """
-    ./mulabel fa init_knowledge_x -c mulabel -l sl --public
+    ./mulabel fa init_embed -c mulabel -l sl --public --ptm_models bge_m3,jinav3,gte
     """
     os.environ['HF_HOME'] = args.tmp_dir  # local tmp dir
 
     compute_arg_collection_name(args)
-    models = _init_ebd_models()
-    labeler = _init_labeler(args)
+    models = _init_ebd_models(args)
+    labeler = init_labeler(args)
     data_as_dicts = _load_data(args, args.collection + '_train')  # we load the train data
 
     inputs: Dict[str: Dict[str, Any]] = {}
@@ -291,13 +298,13 @@ def _select_random_sentences(passages, max_chars):
 
 def fa_init_rae_v(args) -> int:
     """
-    ./mulabel fa init_knowledge_v -c mulabel -l sl --public
+    ./mulabel fa init_rae_v -c mulabel -l sl --public --ptm_models bge_m3,jinav3,gte
     """
     os.environ['HF_HOME'] = args.tmp_dir  # local tmp dir
 
     compute_arg_collection_name(args)
-    models = _init_ebd_models()
-    labeler = _init_labeler(args)
+    models = _init_ebd_models(args)
+    labeler = init_labeler(args)
 
     # read label descriptions / passages
     label_descr_file_path = os.path.join(args.data_in_dir, f'{args.collection}_labels_descr.csv')
@@ -348,31 +355,55 @@ def fa_init_rae_v(args) -> int:
     return 0
 
 
-def _filter_data_labels(labeler: Labeler, data_items, target_indices, filter_labels):
-    texts = [item['text'] for item in data_items]
-    labels = [item['label'] for item in data_items]
-    yl_true = np.array(labeler.vectorize(labels))
-    mask = np.zeros(labeler.num_labels, dtype=bool)
-    if filter_labels:  # keep only desired labels and zero-out undesired labels
-        mask[target_indices] = True
-        yl_true = yl_true * mask
-        mask_non_zero = ~np.all(yl_true == 0, axis=1)
-        texts = [value for idx, value in enumerate(texts) if mask_non_zero[idx]]
-        yl_true = yl_true[mask_non_zero]
+def init_model_data(args, models) -> Dict[str, Dict[str, Any]]:
+    index_path = _get_index_path(args)
+    # static model data
+    model_data = {}
+    for m_name, model in models.items():
+        t0 = time.time()
+        model_data[m_name] = {}
+        x_data = np.load(index_path + '.' + m_name + '_x.npz')  # knowledge input embeddings matrix
+        v_data = {'embeddings': np.array([]), 'y_id': np.array([])}
+        v_data_path = index_path + '.' + m_name + '_v.npz'
+        if os.path.exists(v_data_path):
+            v_data = np.load(v_data_path)  # knowledge label descr embeddings matrix
+            model_data[m_name]['v_data_path'] = v_data_path
+        else:
+            model_data[m_name]['v_data_path'] = None
+        model_data[m_name]['x_data'] = x_data
+        model_data[m_name]['v_data'] = v_data
 
-    return texts, yl_true, mask
+        if os.path.exists(v_data_path):
+            k_embeddings = np.vstack([x_data['embeddings'], v_data['embeddings']])  # knowledge embeddings matrix
+        else:
+            k_embeddings = x_data['embeddings']
+
+        k_dim = np.shape(k_embeddings)[0]
+        model_data[m_name]['embedder'] = model
+
+        dim = np.shape(k_embeddings)[1]
+        index = faiss.IndexHNSWFlat(dim, 64)
+        index.hnsw.efConstruction = 500  # Controls index construction accuracy/speed trade-off
+        index.hnsw.efSearch = 300  # Controls search accuracy/speed trade-off
+        index.add(k_embeddings)
+        model_data[m_name]['embedder'] = model
+        model_data[m_name]['dim'] = dim
+        model_data[m_name]['k_dim'] = k_dim
+        model_data[m_name]['index'] = index
+        logger.info(f'Loaded {m_name} data in {(time.time() - t0):8.2f} seconds')
+    return model_data
 
 
 # noinspection DuplicatedCode
 def fa_test_rae(args) -> int:
     """
-    ./mulabel fa test -c mulabel -l sl --public
+    ./mulabel fa test_rae -c mulabel -l sl --public --ptm_models bge_m3,jinav3,gte
     """
     os.environ['HF_HOME'] = args.tmp_dir  # local tmp dir
 
     compute_arg_collection_name(args)
-    models = _init_ebd_models()
-    labeler = _init_labeler(args)
+    models = _init_ebd_models(args)
+    labeler = init_labeler(args)
 
     suffix = ''
     if args.test_l_class != 'all':
@@ -390,59 +421,28 @@ def fa_test_rae(args) -> int:
     test_coll_name = args.collection + '_test'
     data_as_dicts = _load_data(args, test_coll_name)
 
-    target_indices = []
-    filter_labels = False
-    if args.test_l_class != 'all':
-        label_classes = _load_labels(args.data_in_dir, args.collection, __label_splits, __label_split_names)
-        target_labels = label_classes[args.test_l_class]
-        target_indices = [labeler.encoder.classes_.tolist().index(label) for label in target_labels.keys()]
-        filter_labels = True
+    model_data = init_model_data(args, models)
 
-    index_path = _get_index_path(args)
-    # static model data
-    model_data = {}
-    for model_name, model in models.items():
-        t0 = time.time()
-        model_data[model_name] = {}
-        x_data = np.load(index_path + '.' + model_name + '_x.npz')  # knowledge input embeddings matrix
-        v_data = {'embeddings': np.array([]), 'y_id': np.array([])}
-        v_data_path = index_path + '.' + model_name + '_v.npz'
-        if os.path.exists(v_data_path):
-            v_data = np.load(v_data_path)  # knowledge label descr embeddings matrix
-        model_data[model_name]['x_data'] = x_data
-        model_data[model_name]['v_data'] = v_data
-
-        k_embeddings = np.vstack([x_data['embeddings'], v_data['embeddings']])  # knowledge embeddings matrix
-        k_dim = np.shape(k_embeddings)[0]
-        model_data[model_name]['embedder'] = model
-
-        dim = np.shape(k_embeddings)[1]
-        index = faiss.IndexHNSWFlat(dim, 64)
-        index.hnsw.efConstruction = 500  # Controls index construction accuracy/speed trade-off
-        index.hnsw.efSearch = 300  # Controls search accuracy/speed trade-off
-        index.add(k_embeddings)
-        model_data[model_name]['embedder'] = model
-        model_data[model_name]['dim'] = dim
-        model_data[model_name]['k_dim'] = k_dim
-        model_data[model_name]['index'] = index
-        logger.info(f'Loaded {model_name} data in {(time.time() - t0):8.2f} seconds')
-
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     # subject to grid search
     lamb = 0.5
-    topk = 100  # Number of nearest neighbors to retrieve
+    lamb = 1
+    topk = 50  # Number of nearest neighbors to retrieve
+    threshold = 0.5  # Probability to classify as a positive
     for m_name, m_item in model_data.items():
         # knowledge values matrix
-        k_v = np.vstack([m_item['x_data']['y_true'] * lamb, m_item['v_data']['y_id'] * (1 - lamb)])
+        if m_item['v_data_path'] is not None:
+            k_v = np.vstack([m_item['x_data']['y_true'] * lamb, m_item['v_data']['y_id'] * (1 - lamb)])
+        else:
+            k_v = m_item['x_data']['y_true'] * lamb
         m_item['temperature'] = 1 / math.sqrt(m_item['dim'])  # 1 / sqrt(dim)
         m_item['topk'] = topk
-        m_item['values'] = torch.from_numpy(k_v.astype(np.float32))
+        m_item['values'] = torch.from_numpy(k_v.astype(np.float32)).to(device)
 
     t1 = time.time()
-    for chunk in tqdm(_chunk_data(data_as_dicts, chunk_size=64), desc='Processing RAE-XML complete eval.'):
-        texts, yl_true, mask = _filter_data_labels(labeler, chunk, target_indices, filter_labels)
-        if len(texts) == 0:
-            continue
-
+    for chunk in tqdm(_chunk_data(data_as_dicts, chunk_size=384), desc='Processing RAE-XML complete eval.'):
+        texts = [item['text'] for item in chunk]
+        yl_true = np.array(labeler.vectorize([item['label'] for item in chunk]))
         for model_name, data in model_data.items():
             # Generate embeddings for the batch of texts
             query_vectors = data['embedder'](texts)  # Assuming the embedder supports batch processing
@@ -450,30 +450,145 @@ def fa_test_rae(args) -> int:
 
             # Search for the topk nearest neighbors for all query vectors in the batch
             sim, indices = data['index'].search(query_vectors, data['topk'])  # Batched search
-            # Convert similarities to probabilities using softmax
-            sim = F.softmax(torch.from_numpy(-sim / data['temperature']), dim=-1)
+            sim = torch.from_numpy(sim).to(device)
+            # Convert similarities to probability distribution using softmax
+            sim = F.softmax(-sim / data['temperature'], dim=-1)
             # Initialize qKT tensor for the batch
             batch_size = len(texts)
-            qKT = torch.zeros((batch_size, data['k_dim']), dtype=torch.float32)
+            qKT = torch.zeros((batch_size, data['k_dim']), dtype=torch.float32).to(device)
             # Assign values to specific indices for each item in the batch
             for i in range(batch_size):
                 qKT[i, indices[i]] = sim[i]
 
             # Compute probabilities using matrix multiplication
             probabilities = torch.matmul(qKT, data['values'])
-            yl_pred = (probabilities > 0.2).int().numpy()
-            # Un-vectorize predictions and collect results
-            if filter_labels:
-                yl_pred = yl_pred * mask
-            y_pred[model_name].extend(yl_pred)
+            yl_prob = (probabilities > threshold).cpu().numpy()
+            y_pred[model_name].extend(yl_prob)
             y_true[model_name].extend(yl_true)
 
     logger.info(f'Measured performance in {(time.time() - t1):8.2f} seconds')
     logger.info(f'Computing metrics')
     for model_name in models:
-        y_true_m = np.array(y_true[model_name])
-        y_pred_m = np.array(y_pred[model_name])
+        y_true_m, y_pred_m = filter_metrics(args, labeler, y_true[model_name], y_pred[model_name])
+        metrics[model_name](y_true_m, y_pred_m, 'test/', threshold)
+        metrics[model_name].dump(args.data_result_dir, None, None, 100)
+    logger.info(f'Computation done in {(time.time() - t1):8.2f} seconds')
+    return 0
+
+
+# noinspection DuplicatedCode
+def fa_test_zshot(args) -> int:
+    """
+    ./mulabel fa test_zshot -c mulabel -l sl --public --ptm_models bge_m3,jinav3,gte
+    """
+    os.environ['HF_HOME'] = args.tmp_dir  # local tmp dir
+
+    compute_arg_collection_name(args)
+    models = _init_ebd_models(args)
+    labeler = init_labeler(args)
+
+    suffix = ''
+    if args.test_l_class != 'all':
+        suffix = '_' + args.test_l_class
+
+    metrics = {}
+    y_true = {}
+    y_pred = {}
+    for name in models:
+        metrics[name] = Metrics(f'zshot_{name}_{args.collection}{suffix}', labeler.get_type_code())
+        y_true[name] = []
+        y_pred[name] = []
+
+    train_coll_name = args.collection + '_train'
+    test_coll_name = args.collection + '_test'
+    data_as_dicts = _load_data(args, test_coll_name)
+
+    model_data = init_model_data(args, models)
+
+    t0 = time.time()
+    for chunk in tqdm(_chunk_data(data_as_dicts, chunk_size=384), desc='Processing RAE-XML complete eval.'):
+        texts = [item['text'] for item in chunk]
+        yl_true = np.array(labeler.vectorize([item['label'] for item in chunk]))
+        for model_name, data in model_data.items():
+            # Generate embeddings for the batch of texts
+            query_vectors = data['embedder'](texts)  # Assuming the embedder supports batch processing
+            query_vectors = query_vectors.astype(np.float32)  # Ensure correct dtype
+
+            # Search for the topk nearest neighbors for all query vectors in the batch
+            sim, indices = data['index'].search(query_vectors, 1)  # Batched search
+            yl_pred = data['x_data']['y_true'][indices].squeeze()
+            y_pred[model_name].extend(yl_pred)
+            y_true[model_name].extend(yl_true)
+
+    logger.info(f'Measured performance in {(time.time() - t0):8.2f} seconds')
+    logger.info(f'Computing metrics')
+    for model_name in models:
+        y_true_m, y_pred_m = filter_metrics(args, labeler, y_true[model_name], y_pred[model_name])
         metrics[model_name](y_true_m, y_pred_m, 'test/')
-        metrics[model_name].dump(args.data_result_dir, None, None)
+        metrics[model_name].dump(args.data_result_dir, None, None, 100)
     logger.info(f'Computation done in {(time.time() - t0):8.2f} seconds')
+    return 0
+
+
+# noinspection DuplicatedCode
+def fa_test_mlknn(args) -> int:
+    """
+    ./mulabel fa test -c mulabel -l sl --public --ptm_models bge_m3,jinav3,gte
+    """
+    os.environ['HF_HOME'] = args.tmp_dir  # local tmp dir
+
+    compute_arg_collection_name(args)
+    models = _init_ebd_models(args)
+    labeler = init_labeler(args)
+
+    suffix = ''
+    if args.test_l_class != 'all':
+        suffix = '_' + args.test_l_class
+
+    metrics = {}
+    y_true = {}
+    y_pred = {}
+    for name in models:
+        metrics[name] = Metrics(f'raexmc_{name}_{args.collection}{suffix}', labeler.get_type_code())
+        y_true[name] = []
+        y_pred[name] = []
+
+    train_coll_name = args.collection + '_train'
+    test_coll_name = args.collection + '_test'
+    data_as_dicts = _load_data(args, test_coll_name)
+
+    index_path = _get_index_path(args)
+    # static model data
+    model_data = {}
+    for m_name, model in models.items():
+        t0 = time.time()
+        model_data[m_name] = {}
+        x_data = np.load(index_path + '.' + m_name + '_x.npz')  # knowledge input embeddings matrix
+        k_embeddings = x_data['embeddings']
+        y_true = x_data['y_true']
+        model_data[m_name]['embedder'] = model
+
+        dim = np.shape(k_embeddings)[1]
+        index = faiss.IndexHNSWFlat(dim, 64)
+        index.hnsw.efConstruction = 500  # Controls index construction accuracy/speed trade-off
+        index.hnsw.efSearch = 300  # Controls search accuracy/speed trade-off
+        index.add(k_embeddings)
+
+        def knn_search(ebd: np.ndarray, i: int, k: int):
+            v = ebd[i].reshape(1, -1).astype(np.float32)  # 2D vector
+            sim, indices = index.search(v, k=(k + 1))
+            indices = np.delete(indices, np.where(indices == i))  # remove self
+            return indices
+
+        #mlknn = MLkNN(k_embeddings, y_true, 10, 1, knn_search)
+        #mlknn.fit()
+        mlknn = MLkNN(k=10, s=1.0, ignore_first_neighbours=1)
+        mlknn.fit(k_embeddings, y_true)
+
+        model_data[m_name]['embedder'] = model
+        model_data[m_name]['dim'] = dim
+        model_data[m_name]['k_dim'] = np.shape(k_embeddings)[0]
+        model_data[m_name]['index'] = index
+        logger.info(f'Loaded {m_name} data in {(time.time() - t0):8.2f} seconds')
+
     return 0

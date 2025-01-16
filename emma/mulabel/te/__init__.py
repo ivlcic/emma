@@ -1,9 +1,7 @@
 import os
 import logging
-from typing import Any, Tuple, Dict, List
+from typing import Any, Tuple
 
-import numpy as np
-import pandas as pd
 import torch
 import random
 
@@ -18,8 +16,9 @@ from ...core.args import CommonArguments
 from ...core.models import valid_model_names, model_name_map
 from ...core.metrics import Metrics
 from ...core.wandb import initialize_run
-from ..utils import (__supported_languages, __label_split_names, __label_splits, split_csv_by_frequency,
-                     compute_arg_collection_name, compute_model_output_name, load_train_data, construct_datasets)
+from ..utils import (__supported_languages, __label_split_names,
+                     compute_arg_collection_name, compute_model_output_name, load_train_data, construct_datasets,
+                     filter_metrics)
 
 logger = logging.getLogger('mulabel.te_train')
 
@@ -210,13 +209,6 @@ def te_train(args) -> int:
     # remove_checkpoint_dir(result_path)
     return 0
 
-
-def load_labels(split_dir, corpus: str, splits: List[int], names: List[str]) -> Dict[str, Dict[str, int]]:
-    l_file_path = os.path.join(split_dir, f'{corpus}_labels.csv')
-    if os.path.exists(l_file_path):
-        return split_csv_by_frequency(l_file_path, splits, names)
-
-
 def te_test(args) -> int:
     """
     ./mulabel te test --ptm_name xlmrb_news_sl-p1s0_x0_b16_e30_s1425_lr3e-05 -c mulabel_sl_p1_s0_filtered_article
@@ -296,27 +288,11 @@ def te_test(args) -> int:
         labeler.get_type_code(), avg_k
     )
 
-    target_indices = []
-    filter_labels = False
-    if args.test_l_class != 'all':
-        label_classes = load_labels(args.data_in_dir, args.corpus, __label_splits, __label_split_names)
-        target_labels = label_classes[args.test_l_class]
-        target_indices = [labeler.encoder.classes_.tolist().index(label) for label in target_labels.keys()]
-        filter_labels = True
-
     def compute_metrics(eval_pred: EvalPrediction):
         y_true = eval_pred.label_ids
         y_prob = eval_pred.predictions
-        if filter_labels:  # zero-out undesired labels
-            mask = np.zeros(y_true.shape[1], dtype=bool)
-            mask[target_indices] = True
-            y_true = y_true * mask
-            y_prob = y_prob * mask
-            # exclude samples with all zeros in y_true
-            mask_non_zero = ~np.all(y_true == 0, axis=1)
-            y_true = y_true[mask_non_zero]
-            y_prob = y_prob[mask_non_zero]
-        return metrics(y_true, y_prob, 'test/')
+        y_true, y_prob = filter_metrics(args, labeler, y_true, y_prob)
+        return metrics(y_true, y_prob, 'test/', 0.5)
 
     trainer = Trainer(
         model=model,
@@ -326,5 +302,5 @@ def te_test(args) -> int:
     print(f'{len(datasets["test"])}')
     trainer.predict(datasets['test'])
     #m = metrics(np.array(y_true, dtype=float), np.array(y_pred, dtype=float), 'test/')
-    metrics.dump(args.data_out_dir, None, None)
+    metrics.dump(args.data_out_dir, None, None, 100)
     return 0

@@ -2,10 +2,12 @@ import ast
 import os
 import csv
 import logging
+
+import numpy as np
 import pandas as pd
 import pandas.api.types as ptypes
 
-from typing import List, Dict, Any, Callable, Tuple, Optional
+from typing import List, Dict, Any, Callable, Tuple, Optional, Union
 
 from ..core.dataset import TruncatedDataset
 from ..core.labels import Labeler, BinaryLabeler, MultilabelLabeler, MulticlassLabeler
@@ -381,6 +383,29 @@ def construct_datasets(text_set, label_set, tokenizer, max_len: int = 512) -> Tu
     return datasets, avg_k
 
 
+def init_labeler(args) -> Labeler:
+    labels_file_name = os.path.join(args.data_in_dir, f'{args.collection}_labels.csv')
+    if not os.path.exists(labels_file_name) and 'lrp' in args.collection:
+        tmp = args.collection.replace('lrp_', '')
+        labels_file_name = os.path.join(args.data_in_dir, f'{tmp}_labels.csv')
+        if not os.path.exists(labels_file_name) and 'lrp' in args.collection:
+            raise ValueError(f'Missing labels file [{labels_file_name}]')
+
+    with open(labels_file_name, 'r') as l_file:
+        all_labels = [line.split(',')[0].strip() for line in l_file]
+    if all_labels[0] == 'label':
+        all_labels.pop(0)
+    labeler = MultilabelLabeler(all_labels)
+    labeler.fit()
+    return labeler
+
+
+def load_labels(split_dir, corpus: str, splits: List[int], names: List[str]) -> Dict[str, Dict[str, int]]:
+    l_file_path = os.path.join(split_dir, f'{corpus}_labels.csv')
+    if os.path.exists(l_file_path):
+        return split_csv_by_frequency(l_file_path, splits, names)
+
+
 def split_csv_by_frequency(file_path, splits, category_names=None):
     """
     Splits CSV data from a file into dictionaries based on frequency thresholds and custom category names.
@@ -434,3 +459,37 @@ def split_csv_by_frequency(file_path, splits, category_names=None):
                         break
 
     return categories
+
+
+def filter_metrics(args, labeler: Labeler, y_true: Union[List, np.ndarray], y_prob: Union[List, np.ndarray]):
+    if isinstance(y_true, List):
+        y_true = np.vstack(y_true, dtype=np.float32)
+    if isinstance(y_prob, List):
+        y_prob = np.vstack(y_prob, dtype=np.float32)
+
+    target_indices = []
+    filter_labels = False
+    if args.test_l_class != 'all':
+        label_classes = load_labels(args.data_in_dir, args.collection, __label_splits, __label_split_names)
+        target_labels = label_classes[args.test_l_class]
+        target_indices = [labeler.encoder.classes_.tolist().index(label) for label in target_labels.keys()]
+        filter_labels = True
+
+    if not filter_labels:
+        return y_true, y_prob
+
+    target_indices = np.array(target_indices)
+    # create mask for zeroing non-target labels
+    mask = np.zeros(y_true.shape[1], dtype=bool)
+    mask[target_indices] = True
+    y_true = y_true * mask
+    y_prob = y_prob * mask
+    # exclude samples with all zeros in y_true
+    mask_non_zero = ~np.all(y_true == 0, axis=1)
+    y_true = y_true[mask_non_zero]
+    y_prob = y_prob[mask_non_zero]
+
+    # keep only target columns
+    y_true = y_true[:, target_indices]
+    y_prob = y_prob[:, target_indices]
+    return y_true, y_prob
