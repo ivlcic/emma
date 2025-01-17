@@ -431,7 +431,7 @@ def fa_hard_neg(args) -> int:
 
     model_data = init_model_data(args, labeler, 'ignore', models)
     batch_size = 64
-    k = 100
+    k = 500
     nn = 15
     num_samples = len(data_as_dicts)
     model_samples = {}
@@ -473,6 +473,16 @@ def fa_hard_neg(args) -> int:
                 num_missing = nn - len(sample['neg'])
                 if num_missing > 0:
                     in_batch_neg = [num for num in range(start_idx, end_idx) if num not in sim_sample_indices]
+                    if len(in_batch_neg) <= num_missing:
+                        logger.error(f'Missing {num_missing} greater than '
+                                     f'available samples [{in_batch_neg}] in {indices[i]} ')
+                        # use prev batch
+                        in_batch_neg = [num for num in range(start_idx - batch_size, end_idx - batch_size)
+                                        if num not in sim_sample_indices]
+                        if len(in_batch_neg) <= num_missing:
+                            logger.error(f'Missing {num_missing} greater than '
+                                         f'available samples [{in_batch_neg}] in {indices[i]} ')
+                            continue
                     missing = random.sample(in_batch_neg, num_missing)
                     for idx in missing:
                         sample['neg'].append(data_as_dicts[idx]['text'])
@@ -482,8 +492,8 @@ def fa_hard_neg(args) -> int:
 
                 model_samples[m_name].append(sample)
 
-        if start_idx > batch_size:
-            break
+        # if start_idx > batch_size:  # for debug
+        #     break
 
     for m_name, m_item in model_samples.items():
         jsonl_file_name = f'{m_name}_{args.collection}_hn.jsonl'
