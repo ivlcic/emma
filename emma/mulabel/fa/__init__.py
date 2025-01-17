@@ -1,4 +1,5 @@
 import ast
+import json
 import math
 import os
 import logging
@@ -6,7 +7,7 @@ import random
 import time
 
 from argparse import ArgumentParser
-from typing import Dict, Any, List, Callable, Union, LiteralString
+from typing import Dict, Any, List, Callable, Union, LiteralString, Tuple
 
 import numpy as np
 import pandas as pd
@@ -27,8 +28,8 @@ from ...core.labels import Labeler
 from ...core.metrics import Metrics
 from ...core.models import retrieve_model_name_map
 from ..tokenizer import get_segmenter
-from ..utils import (__supported_languages, __supported_passage_sizes, __label_split_names, __label_splits,
-                     compute_arg_collection_name, load_add_corpus_part, load_labels,
+from ..utils import (__supported_languages, __supported_passage_sizes, __label_split_names,
+                     compute_arg_collection_name, load_add_corpus_part,
                      init_labeler, filter_metrics)
 
 logger = logging.getLogger('mulabel.fa')
@@ -80,11 +81,12 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
         help=f'Use only ptm_models (filter everything else out). '
              f'You can use a comma separated list of {retrieve_model_name_map.keys()}',
         type=str,
+        default=next(iter(retrieve_model_name_map))
     )
 
 
 # noinspection DuplicatedCode
-def _load_data(arg, coll: str) -> List[Dict[str, Any]]:
+def _load_data(arg, coll: str) -> Tuple[List[Dict[str, Any]], pd.DataFrame]:
     data_file_name = os.path.join(arg.data_in_dir, f'{coll}.csv')
     if not os.path.exists(data_file_name):
         data_file_name = os.path.join(arg.data_out_dir, f'{coll}.csv')
@@ -92,7 +94,7 @@ def _load_data(arg, coll: str) -> List[Dict[str, Any]]:
     data_df = load_add_corpus_part(data_file_name, 'label')
     if 'lrp' in coll and 'passage_targets' in data_df.columns:
         data_df['passage_targets'] = data_df['passage_targets'].apply(ast.literal_eval)
-    return data_df.to_dict(orient='records')
+    return data_df.to_dict(orient='records'), data_df
 
 
 def _chunk_data(data_list, chunk_size=500):
@@ -182,7 +184,7 @@ def fa_init_pseudo_labels(args) -> int:
 
     # now we construct pseudo label descriptions
     label_dict: Dict[str, Dict['str', Any]] = {}
-    data_as_dicts = _load_data(args, 'lrp_' + args.collection + '_train')  # we load the train data
+    data_as_dicts, _ = _load_data(args, 'lrp_' + args.collection + '_train')  # we load the train data
     for item in data_as_dicts:
         if item['passage_cat'] != 0 and item['passage_cat'] != 1:
             continue
@@ -273,6 +275,7 @@ def fa_init_embed(args) -> int:
         data_dict = inputs[model_name]
         data_dict['embeddings'] = np.vstack(inputs[model_name]['embeddings'])
         data_dict['y_true'] = np.vstack(inputs[model_name]['y_true'])
+        # noinspection PyTypeChecker
         np.savez_compressed(index_path + '.' + model_name + '_x.npz', **data_dict)
 
     return 0
@@ -350,12 +353,16 @@ def fa_init_rae_v(args) -> int:
         data_dict = labels[model_name]
         data_dict['embeddings'] = np.vstack(labels[model_name]['embeddings'])
         data_dict['y_id'] = np.identity(num_labels)
+        # noinspection PyTypeChecker
         np.savez_compressed(index_path + '.' + model_name + '_v.npz', **data_dict)
 
     return 0
 
 
-def init_model_data(args, models) -> Dict[str, Dict[str, Any]]:
+def init_model_data(args,
+                    labeler: Labeler,
+                    prefix: str,
+                    models: Dict[str, Callable[[Union[str, List[str]]], np.ndarray]]) -> Dict[str, Dict[str, Any]]:
     index_path = _get_index_path(args)
     # static model data
     model_data = {}
@@ -368,30 +375,124 @@ def init_model_data(args, models) -> Dict[str, Dict[str, Any]]:
         if os.path.exists(v_data_path):
             v_data = np.load(v_data_path)  # knowledge label descr embeddings matrix
             model_data[m_name]['v_data_path'] = v_data_path
+            prefix = prefix + '-v_'  # mark metrics that we used label descr. embeddings and label matrix also
         else:
             model_data[m_name]['v_data_path'] = None
         model_data[m_name]['x_data'] = x_data
         model_data[m_name]['v_data'] = v_data
 
+        suffix = ''
+        if args.test_l_class != 'all':
+            suffix = '_' + args.test_l_class
+        m = Metrics(f'{prefix}_{m_name}_{args.collection}{suffix}', labeler.get_type_code())
+
         if os.path.exists(v_data_path):
+            # stack training data embeddings with label description embeddings
             k_embeddings = np.vstack([x_data['embeddings'], v_data['embeddings']])  # knowledge embeddings matrix
         else:
+            # no label description embeddings, use just training data embeddings
             k_embeddings = x_data['embeddings']
 
         k_dim = np.shape(k_embeddings)[0]
         model_data[m_name]['embedder'] = model
 
+        # init faiss index from embeddings
         dim = np.shape(k_embeddings)[1]
         index = faiss.IndexHNSWFlat(dim, 64)
         index.hnsw.efConstruction = 500  # Controls index construction accuracy/speed trade-off
         index.hnsw.efSearch = 300  # Controls search accuracy/speed trade-off
+        # noinspection PyArgumentList
         index.add(k_embeddings)
+
         model_data[m_name]['embedder'] = model
         model_data[m_name]['dim'] = dim
         model_data[m_name]['k_dim'] = k_dim
         model_data[m_name]['index'] = index
+        model_data[m_name]['y_true'] = []  # collect batch ground truth values
+        model_data[m_name]['y_pred'] = []  # collect batch predictions
+        model_data[m_name]['metrics'] = m
         logger.info(f'Loaded {m_name} data in {(time.time() - t0):8.2f} seconds')
     return model_data
+
+
+def fa_hard_neg(args) -> int:
+    """
+    ./mulabel fa hard_neg -c mulabel -l sl
+    """
+    os.environ['HF_HOME'] = args.tmp_dir  # local tmp dir
+
+    compute_arg_collection_name(args)
+    models = _init_ebd_models(args)
+    labeler = init_labeler(args)
+
+    train_coll_name = args.collection + '_train'
+    test_coll_name = args.collection + '_test'
+    data_as_dicts, _ = _load_data(args, train_coll_name)
+
+    model_data = init_model_data(args, labeler, 'ignore', models)
+    batch_size = 64
+    k = 100
+    nn = 15
+    num_samples = len(data_as_dicts)
+    model_samples = {}
+    for m_name, m_item in model_data.items():
+        model_samples[m_name] = []
+
+    for start_idx in tqdm(range(0, num_samples, batch_size), desc="Hard Negative Sampling"):
+        end_idx = min(start_idx + batch_size, num_samples)
+        indices = list(range(start_idx, end_idx))
+        texts = [item['text'] for item in data_as_dicts[start_idx:end_idx]]
+        labels = [item['label'] for item in data_as_dicts[start_idx:end_idx]]
+        for m_name, m_data in model_data.items():
+            y_true = m_data['x_data']['y_true']
+            yb_true = y_true[start_idx:end_idx]  # current batch
+            query_vectors = m_data['x_data']['embeddings'][start_idx:end_idx]
+            query_vectors = query_vectors.astype(np.float32)  # Ensure correct dtype
+
+            batch_sim, batch_indices = m_data['index'].search(query_vectors, k + 1)
+
+            for i, sim_sample_indices in enumerate(batch_indices):
+                sample = {
+                    'idx': indices[i], 'text': texts[i], 'label': labels[i],
+                    'pos': None, 'pos_l': None, 'pos_i': None,
+                    'neg': [], 'neg_l': [], 'neg_i': [], 'inb_neg_i': [],
+                }
+                for idx in sim_sample_indices[1:]:  # Skip self-match (first result)
+                    y_sim_sample = y_true[idx]
+                    if len(sample['neg']) >= nn:
+                        break
+                    if not np.any(yb_true[i] & y_sim_sample):
+                        sample['neg'].append(data_as_dicts[idx]['text'])
+                        sample['neg_l'].append(data_as_dicts[idx]['label'])
+                        sample['neg_i'].append(int(idx))
+                    elif sample['pos'] is None:
+                        sample['pos'] = data_as_dicts[idx]['text']
+                        sample['pos_l'] = data_as_dicts[idx]['label']
+                        sample['pos_i'] = int(idx)
+
+                num_missing = nn - len(sample['neg'])
+                if num_missing > 0:
+                    in_batch_neg = [num for num in range(start_idx, end_idx) if num not in sim_sample_indices]
+                    missing = random.sample(in_batch_neg, num_missing)
+                    for idx in missing:
+                        sample['neg'].append(data_as_dicts[idx]['text'])
+                        sample['neg_l'].append(data_as_dicts[idx]['label'])
+                        sample['neg_i'].append(int(idx))
+                        sample['inb_neg_i'].append(int(idx))
+
+                model_samples[m_name].append(sample)
+
+        if start_idx > batch_size:
+            break
+
+    for m_name, m_item in model_samples.items():
+        jsonl_file_name = f'{m_name}_{args.collection}_hn.jsonl'
+        jsonl_path = os.path.join(args.data_in_dir, jsonl_file_name)
+        with open(jsonl_path, 'w', encoding='utf-8') as fp:
+            for i, sample in enumerate(model_samples[m_name]):
+                json.dump(sample, fp, indent=2)
+                fp.write('\n')
+    return 0
 
 
 # noinspection DuplicatedCode
@@ -405,23 +506,11 @@ def fa_test_rae(args) -> int:
     models = _init_ebd_models(args)
     labeler = init_labeler(args)
 
-    suffix = ''
-    if args.test_l_class != 'all':
-        suffix = '_' + args.test_l_class
-
-    metrics = {}
-    y_true = {}
-    y_pred = {}
-    for name in models:
-        metrics[name] = Metrics(f'raexmc_{name}_{args.collection}{suffix}', labeler.get_type_code())
-        y_true[name] = []
-        y_pred[name] = []
-
     train_coll_name = args.collection + '_train'
     test_coll_name = args.collection + '_test'
     data_as_dicts = _load_data(args, test_coll_name)
 
-    model_data = init_model_data(args, models)
+    model_data = init_model_data(args, labeler, 'raexmc', models)
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     # subject to grid search
@@ -432,6 +521,8 @@ def fa_test_rae(args) -> int:
     for m_name, m_item in model_data.items():
         # knowledge values matrix
         if m_item['v_data_path'] is not None:
+            lamb = 0.5
+            threshold = 0.3
             k_v = np.vstack([m_item['x_data']['y_true'] * lamb, m_item['v_data']['y_id'] * (1 - lamb)])
         else:
             k_v = m_item['x_data']['y_true'] * lamb
@@ -463,15 +554,15 @@ def fa_test_rae(args) -> int:
             # Compute probabilities using matrix multiplication
             probabilities = torch.matmul(qKT, data['values'])
             yl_prob = (probabilities > threshold).cpu().numpy()
-            y_pred[model_name].extend(yl_prob)
-            y_true[model_name].extend(yl_true)
+            data['y_pred'].extend(yl_prob)
+            data['y_true'].extend(yl_true)
 
     logger.info(f'Measured performance in {(time.time() - t1):8.2f} seconds')
     logger.info(f'Computing metrics')
-    for model_name in models:
-        y_true_m, y_pred_m = filter_metrics(args, labeler, y_true[model_name], y_pred[model_name])
-        metrics[model_name](y_true_m, y_pred_m, 'test/', threshold)
-        metrics[model_name].dump(args.data_result_dir, None, None, 100)
+    for m_name, m_item in model_data.items():
+        y_true_m, y_pred_m = filter_metrics(args, labeler, m_item['y_true'], m_item['y_pred'])
+        m_item['metrics'](y_true_m, y_pred_m, 'test/', threshold)
+        m_item['metrics'].dump(args.data_result_dir, None, None, 100)
     logger.info(f'Computation done in {(time.time() - t1):8.2f} seconds')
     return 0
 
@@ -487,23 +578,11 @@ def fa_test_zshot(args) -> int:
     models = _init_ebd_models(args)
     labeler = init_labeler(args)
 
-    suffix = ''
-    if args.test_l_class != 'all':
-        suffix = '_' + args.test_l_class
-
-    metrics = {}
-    y_true = {}
-    y_pred = {}
-    for name in models:
-        metrics[name] = Metrics(f'zshot_{name}_{args.collection}{suffix}', labeler.get_type_code())
-        y_true[name] = []
-        y_pred[name] = []
-
     train_coll_name = args.collection + '_train'
     test_coll_name = args.collection + '_test'
-    data_as_dicts = _load_data(args, test_coll_name)
+    data_as_dicts, _ = _load_data(args, test_coll_name)
 
-    model_data = init_model_data(args, models)
+    model_data = init_model_data(args, labeler, 'zshot', models)
 
     t0 = time.time()
     for chunk in tqdm(_chunk_data(data_as_dicts, chunk_size=384), desc='Processing RAE-XML complete eval.'):
@@ -517,15 +596,16 @@ def fa_test_zshot(args) -> int:
             # Search for the topk nearest neighbors for all query vectors in the batch
             sim, indices = data['index'].search(query_vectors, 1)  # Batched search
             yl_pred = data['x_data']['y_true'][indices].squeeze()
-            y_pred[model_name].extend(yl_pred)
-            y_true[model_name].extend(yl_true)
+            data['y_pred'].extend(yl_pred)
+            data['y_true'].extend(yl_true)
 
     logger.info(f'Measured performance in {(time.time() - t0):8.2f} seconds')
     logger.info(f'Computing metrics')
-    for model_name in models:
-        y_true_m, y_pred_m = filter_metrics(args, labeler, y_true[model_name], y_pred[model_name])
-        metrics[model_name](y_true_m, y_pred_m, 'test/')
-        metrics[model_name].dump(args.data_result_dir, None, None, 100)
+    for m_name, m_item in model_data.items():
+        y_true_m, y_pred_m = filter_metrics(args, labeler, m_item['y_true'], m_item['y_pred'])
+        m_item['metrics'](y_true_m, y_pred_m, 'test/')
+        m_item['metrics'].dump(args.data_result_dir, None, None, 100)
+
     logger.info(f'Computation done in {(time.time() - t0):8.2f} seconds')
     return 0
 
@@ -555,7 +635,7 @@ def fa_test_mlknn(args) -> int:
 
     train_coll_name = args.collection + '_train'
     test_coll_name = args.collection + '_test'
-    data_as_dicts = _load_data(args, test_coll_name)
+    data_as_dicts, _ = _load_data(args, test_coll_name)
 
     index_path = _get_index_path(args)
     # static model data
@@ -572,10 +652,12 @@ def fa_test_mlknn(args) -> int:
         index = faiss.IndexHNSWFlat(dim, 64)
         index.hnsw.efConstruction = 500  # Controls index construction accuracy/speed trade-off
         index.hnsw.efSearch = 300  # Controls search accuracy/speed trade-off
+        # noinspection PyArgumentList
         index.add(k_embeddings)
 
         def knn_search(ebd: np.ndarray, i: int, k: int):
             v = ebd[i].reshape(1, -1).astype(np.float32)  # 2D vector
+            # noinspection PyArgumentList
             sim, indices = index.search(v, k=(k + 1))
             indices = np.delete(indices, np.where(indices == i))  # remove self
             return indices
