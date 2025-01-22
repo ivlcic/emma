@@ -1,123 +1,116 @@
-#@Time      :2018/9/14 14:27
-#@Author    :zhounan
-# @FileName: mlknn.py
-from typing import Callable
+import sys
+
+sys.path.append("..")
 
 import numpy as np
-from numpy import ndarray
+from sklearn.base import ClassifierMixin
+from sklearn.neighbors import NearestNeighbors
 
 
-class MLKNN:
+class MLkNN(ClassifierMixin, NeighborsBase):
+    def __init__(self, n_neighbors=5, s=1, metric='minkowski', p=2,
+                 algorithm='auto', leaf_size=30, metric_params=None, n_jobs=None):
 
-    def __init__(self, train_x: ndarray, train_y: ndarray, k: int, s: int, knn: Callable[[ndarray, int, int], ndarray]):
-        self.k = k
+        super().__init__(
+            n_neighbors=n_neighbors,
+            algorithm=algorithm,
+            leaf_size=leaf_size, metric=metric, p=p,
+            metric_params=metric_params,
+            n_jobs=n_jobs)
+
+        self._k = n_neighbors
         self.s = s
-        self.train_x = train_x
-        self.train_y = train_y
-        self.label_num = train_y.shape[1]
-        self.train_data_num = train_x.shape[0]
-        self.Ph1 = np.zeros(self.label_num)
-        self.Ph0 = np.zeros(self.label_num)
-        self.Peh1 = np.zeros([self.label_num, self.k + 1])
-        self.Peh0 = np.zeros([self.label_num, self.k + 1])
-        self.knn = knn
+        self.nn_obj = self.__set_nn_obj()
+        self.prior = None
+        self.posterior = None
 
-    def train(self):
-        #computing the prior probabilities
-        # for i in range(self.label_num):
-        #     cnt = 0
-        #     for j in range(self.train_data_num):
-        #         if self.train_y[j][i] == 1:
-        #             cnt = cnt + 1
-        #     self.Ph1[i] = (self.s + cnt) / (self.s * 2 + self.train_data_num)
-        #     self.Ph0[i] = 1 - self.Ph1[i]
+    def __set_params(self, X, y):
+        n_labels = y.shape[1]
+        self.__dict__.update({'n_labels': n_labels})
+        self.__fit_nn_obj(X)
 
-        # Optimized computation of prior probabilities
-        cnt = np.sum(self.train_y == 1, axis=0)  # Count occurrences of 1 for each label
-        self.Ph1 = (self.s + cnt) / (self.s * 2 + self.train_data_num)  # Calculate P(h=1)
-        self.Ph0 = 1 - self.Ph1  # Calculate P(h=0)
+    def __set_nn_obj(self):
+        if self.metric is not None:
+            return NearestNeighbors(n_neighbors=self._k + 1, metric=self.metric,
+                                    algorithm=self.algorithm, leaf_size=self.leaf_size, p=self.p,
+                                    metric_params=self.metric_params, n_jobs=self.n_jobs)
+        else:
+            raise Exception("Metric cannot be none")
 
-        for i in range(self.label_num):
+    def __fit_nn_obj(self, X):
+        _ = self.nn_obj.fit(X)
 
-            print('training for label\n', i + 1)
-            c1 = np.zeros(self.k + 1)
-            c0 = np.zeros(self.k + 1)
+    def __get_nn_matrix(self, X, train=False):
+        if train:
+            return self.nn_obj.kneighbors(X, n_neighbors=self._k + 1, return_distance=False)[:, 1:]
+        else:
+            return self.nn_obj.kneighbors(X, n_neighbors=self._k, return_distance=False)
 
-            for j in range(self.train_data_num):
-                temp = 0
-                neighbors = self.knn(self.train_x, j, self.k)
+    #     def __get_membership_counting_vectors(nn_mat):
+    #         C_x = np.empty(self.y_train.shape)
+    #         for i, row in enumerate(nn_mat):
+    #             C_x[i] = self.y_train[row[1:]].sum(axis=0)
+    #         return C_x
 
-                for k in range(self.k):
-                    temp = temp + int(self.train_y[int(neighbors[k])][i])
+    def __set_prior(self, y_train):
+        prior = np.zeros((self.n_labels, 2))
+        prior[:, 1] = (self.s + y_train.sum(axis=0)) / (self.s * 2 + y_train.shape[0])
+        prior[:, 0] = 1 - prior[:, 1]
+        setattr(self, 'prior', prior)
 
-                if self.train_y[j][i] == 1:
-                    c1[temp] = c1[temp] + 1
+    def __set_posterior(self, C_x, y):
+        posterior = np.zeros((self.n_labels, self._k + 1, 2))
+        for label in range(self.n_labels):
+            c = np.zeros(self._k + 1)
+            c_p = np.zeros(self._k + 1)
+            for row in range(C_x.shape[0]):
+                d = C_x[row, label]
+                if y[row, label] == 1:
+                    c[d] += 1
                 else:
-                    c0[temp] = c0[temp] + 1
+                    c_p[d] += 1
+            for neighbor in range(self._k + 1):
+                posterior[label, neighbor, 1] = (self.s + c[neighbor]) / (self.s * (self._k + 1) + c.sum())
+                posterior[label, neighbor, 0] = (self.s + c_p[neighbor]) / (self.s * (self._k + 1) + c_p.sum())
 
-            for j in range(self.k + 1):
-                self.Peh1 = (self.s + c1[j]) / (self.s * (self.k + 1) + np.sum(c1))
-                self.Peh0 = (self.s + c0[j]) / (self.s * (self.k + 1) + np.sum(c0))
+        setattr(self, 'posterior', posterior)
 
+    def __get_membership_counting_vectors(self, nn_mat, y_train):
+        return np.array([y_train[row].sum(axis=0) for row in nn_mat], dtype=int)
 
-class MLKNN2:
-    def __init__(self, k: int, s: int, knn: Callable[[ndarray, int, int], ndarray]):
-        self.s = s
-        self.k = k
-        self.Ph1 = np.array([])
-        self.Ph0 = np.array([])
-        self.Peh1 = np.array([])
-        self.Peh0 = np.array([])
-        self.knn = knn
+    def fit(self, X, y):
+        if y.shape[1] < 2:
+            raise ValueError("Target must be one-hot encoded label vectors")
 
-    def fit(self, train_x: ndarray, train_y: ndarray):
-        self.labels_num = train_y.shape[1]
-        self.train_data_num = train_x.shape[0]
+        self.__dict__.update({'__x_train': X, '__y_train': y})
 
-        # Vectorized computation of Ph1 and Ph0
-        label_counts = np.sum(train_y, axis=0)  # Count occurrences of 1 for each label
-        self.Ph1 = (self.s + label_counts) / (self.s * 2 + self.train_data_num)
-        self.Ph0 = 1 - self.Ph1
+        self.__set_params(X, y)
+        self.__set_prior(y)
+        nn_mat = self.__get_nn_matrix(X)  # , train=True)
 
-        # Precompute neighbors for all training samples
-        neighbors = [self.knn(train_x, j, self.k) for j in range(self.train_data_num)]
-        all_neighbors = np.array(neighbors)
+        C_x = self.__get_membership_counting_vectors(nn_mat, y)
+        self.__set_posterior(C_x, y)
 
-        # Vectorized computation of Peh1 and Peh0
-        for i in range(self.labels_num):
-            # Compute the number of neighbors with label=1 for each training sample
-            temp = np.sum(train_y[all_neighbors, i], axis=1)
+    def predict(self, X):
+        y_pred = np.zeros((X.shape[0], self.n_labels))
+        nn_mat = self.__get_nn_matrix(X)
+        C_x = self.__get_membership_counting_vectors(nn_mat, getattr(self, '__y_train'))
+        for label in range(self.n_labels):
+            for row in range(C_x.shape[0]):
+                y_t_1 = self.prior[label, 1] * self.posterior[label, C_x[row, label], 1]
+                y_t_0 = self.prior[label, 0] * self.posterior[label, C_x[row, label], 0]
+                y_pred[row, label] = int(y_t_0 <= y_t_1)
 
-            # Count occurrences of each value in temp for c1 and c0
-            c1 = np.bincount(temp[train_y[:, i] == 1], minlength=self.k + 1)
-            c0 = np.bincount(temp[train_y[:, i] == 0], minlength=self.k + 1)
+        return y_pred.astype(int)
 
-            # Compute probabilities Peh1 and Peh0
-            total_c1 = np.sum(c1)
-            total_c0 = np.sum(c0)
-            self.Peh1[i] = (self.s + c1) / (self.s * (self.k + 1) + total_c1)
-            self.Peh0[i] = (self.s + c0) / (self.s * (self.k + 1) + total_c0)
+    def predict_proba(self, X):
+        r_pred = np.zeros((X.shape[0], self.n_labels))
+        nn_mat = self.__get_nn_matrix(X)
+        C_x = self.__get_membership_counting_vectors(nn_mat, getattr(self, '__y_train'))
+        for label in range(self.n_labels):
+            for row in range(C_x.shape[0]):
+                y_t_1 = self.prior[label, 1] * self.posterior[label, C_x[row, label], 1]
+                y_t_0 = self.prior[label, 0] * self.posterior[label, C_x[row, label], 0]
+                r_pred[row, label] = y_t_1 / (y_t_0 + y_t_1)
 
-    def predict(self, _test_data):
-        test_data_num = _test_data.shape[0]
-        rtl = np.zeros((test_data_num, self.labels_num))
-        predict_labels = np.zeros((test_data_num, self.labels_num))
-
-        # Precompute neighbors for all test samples
-        all_test_neighbors = np.array([self.knn(self.train_data, _test_data[i], self.k) for i in range(test_data_num)])
-
-        # Vectorized prediction computation
-        for j in range(self.labels_num):
-            # Compute the number of neighbors with label=1 for each test sample
-            temp = np.sum(self.train_target[all_test_neighbors, j], axis=1)
-
-            # Compute probabilities y1 and y0 for each test sample
-            y1 = self.Ph1[j] * self.Peh1[j][temp]
-            y0 = self.Ph0[j] * self.Peh0[j][temp]
-
-            # Compute rtl and pred
-            # Compute rtl and predict labels based on y1 and y0
-            rtl[:, j] = y1 / (y1 + y0)
-            predict_labels[:, j] = (y1 > y0).astype(int)
-
-        return predict_labels
+        return r_pred

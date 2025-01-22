@@ -1,5 +1,6 @@
 import ast
 import os
+import re
 import csv
 import logging
 
@@ -386,7 +387,7 @@ def construct_datasets(text_set, label_set, tokenizer, max_len: int = 512) -> Tu
 def init_labeler(args) -> Labeler:
     labels_file_name = os.path.join(args.data_in_dir, f'{args.collection}_labels.csv')
     if not os.path.exists(labels_file_name) and 'lrp' in args.collection:
-        tmp = args.collection.replace('lrp_', '')
+        tmp = re.sub(r'lrp(-\d+)*_', '', args.collection)
         labels_file_name = os.path.join(args.data_in_dir, f'{tmp}_labels.csv')
         if not os.path.exists(labels_file_name) and 'lrp' in args.collection:
             raise ValueError(f'Missing labels file [{labels_file_name}]')

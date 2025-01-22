@@ -1,6 +1,5 @@
 import ast
 import json
-import math
 import os
 import logging
 import random
@@ -18,11 +17,11 @@ from FlagEmbedding import BGEM3FlagModel
 import torch.nn.functional as F
 from tqdm import tqdm
 from transformers import AutoModel
-from skmultilearn.adapt import MLkNN
 
 
 from ..gte import GTEEmbedding
 from ..kalm import KaLMEmbedding
+from ..mlknn import MLkNN3, MLkNN5
 from ...core.args import CommonArguments
 from ...core.labels import Labeler
 from ...core.metrics import Metrics
@@ -71,6 +70,9 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
     )
     parser.add_argument(
         '--calib_max', type=int, help=f'Max number of labels to calibrate on.', default=-1
+    )
+    parser.add_argument(
+        '--lrp_size', type=int, help=f'LRP size.', default=1
     )
     parser.add_argument(
         '--test_l_class', type=str, help=f'Test specified label class.',
@@ -233,6 +235,33 @@ def fa_init_pseudo_labels(args) -> int:
     return 0
 
 
+def fa_lrp_extract(args) -> int:
+    """
+    ./mulabel fa lrp_extract -c mulabel -l sl --public
+    """
+    os.environ['HF_HOME'] = args.tmp_dir  # local tmp dir
+    compute_arg_collection_name(args)
+    labeler = init_labeler(args)
+    all_labels = set(labeler.labels)
+    for t in ['train', 'dev', 'test']:
+        _, df = _load_data(args, f'lrp_{args.collection}_{t}')  # we load the data
+        df = df[(df['passage_cat'] == 0) | (df['passage_cat'] == args.lrp_size)]
+        filtered_dicts = df.to_dict(orient='records')
+        filtered_data = []
+        for f in filtered_dicts:  # remove samples with labels not in all_labels
+            f['label'] = [label for label in f['label'] if label in all_labels]
+            if len(f['label']) > 0:
+                filtered_data.append(f)
+
+        df = pd.DataFrame(filtered_data)
+        df.to_csv(
+            os.path.join(args.data_in_dir, f'lrp-{args.lrp_size}_{args.collection}_{t}.csv'),
+            index=False, encoding='utf-8'
+        )
+
+    return 0
+
+
 def _get_index_path(args) -> LiteralString | str | bytes:
     index_path = os.path.join(args.data_result_dir, 'index')
     if not os.path.exists(index_path):
@@ -250,7 +279,7 @@ def fa_init_embed(args) -> int:
     compute_arg_collection_name(args)
     models = _init_ebd_models(args)
     labeler = init_labeler(args)
-    data_as_dicts = _load_data(args, args.collection + '_train')  # we load the train data
+    data_as_dicts, _ = _load_data(args, args.collection + '_train')  # we load the train data
 
     inputs: Dict[str: Dict[str, Any]] = {}
     for model_name in models:
@@ -261,13 +290,13 @@ def fa_init_embed(args) -> int:
 
     for chunk in _chunk_data(data_as_dicts, chunk_size=384):
         texts: List[str] = [d['text'] for d in chunk]
-        labels = np.array([labeler.vectorize([d['label']]) for d in chunk])
-        labels = np.squeeze(labels, axis=1)
+        label_v = np.array([labeler.vectorize([d['label']]) for d in chunk])
+        label_v = np.squeeze(label_v, axis=1)
         for model_name, model in models.items():
             ret = model(texts)
             batch_size = ret.shape[0]
             inputs[model_name]['embeddings'].append(ret)
-            inputs[model_name]['y_true'].append(labels)
+            inputs[model_name]['y_true'].append(label_v)
             inputs[model_name]['samples'] += batch_size
 
     index_path = _get_index_path(args)
@@ -361,6 +390,7 @@ def fa_init_rae_v(args) -> int:
 
 def init_model_data(args,
                     labeler: Labeler,
+                    index_metric: int,
                     prefix: str,
                     models: Dict[str, Callable[[Union[str, List[str]]], np.ndarray]]) -> Dict[str, Dict[str, Any]]:
     index_path = _get_index_path(args)
@@ -398,7 +428,7 @@ def init_model_data(args,
 
         # init faiss index from embeddings
         dim = np.shape(k_embeddings)[1]
-        index = faiss.IndexHNSWFlat(dim, 64)
+        index = faiss.IndexHNSWFlat(dim, 64, index_metric)
         index.hnsw.efConstruction = 500  # Controls index construction accuracy/speed trade-off
         index.hnsw.efSearch = 300  # Controls search accuracy/speed trade-off
         # noinspection PyArgumentList
@@ -429,7 +459,7 @@ def fa_hard_neg(args) -> int:
     test_coll_name = args.collection + '_test'
     data_as_dicts, _ = _load_data(args, train_coll_name)
 
-    model_data = init_model_data(args, labeler, 'ignore', models)
+    model_data = init_model_data(args, labeler, faiss.METRIC_INNER_PRODUCT, 'ignore', models)
     batch_size = 64
     k = 500
     nn = 15
@@ -453,22 +483,23 @@ def fa_hard_neg(args) -> int:
 
             for i, sim_sample_indices in enumerate(batch_indices):
                 sample = {
-                    'idx': indices[i], 'text': texts[i], 'label': labels[i],
-                    'pos': None, 'pos_l': None, 'pos_i': None,
+                    'idx': indices[i], 'query': texts[i], 'label': labels[i],
+                    'pos': [], 'pos_l': [], 'pos_i': [],
                     'neg': [], 'neg_l': [], 'neg_i': [], 'inb_neg_i': [],
                 }
                 for idx in sim_sample_indices[1:]:  # Skip self-match (first result)
                     y_sim_sample = y_true[idx]
-                    if len(sample['neg']) >= nn:
+                    if len(sample['neg']) >= nn and len(sample['pos']) >= 1:
                         break
                     if not np.any(yb_true[i] & y_sim_sample):
-                        sample['neg'].append(data_as_dicts[idx]['text'])
-                        sample['neg_l'].append(data_as_dicts[idx]['label'])
-                        sample['neg_i'].append(int(idx))
-                    elif sample['pos'] is None:
-                        sample['pos'] = data_as_dicts[idx]['text']
-                        sample['pos_l'] = data_as_dicts[idx]['label']
-                        sample['pos_i'] = int(idx)
+                        if len(sample['neg']) < nn:
+                            sample['neg'].append(data_as_dicts[idx]['text'])
+                            sample['neg_l'].append(data_as_dicts[idx]['label'])
+                            sample['neg_i'].append(int(idx))
+                    elif len(sample['pos']) < 1:
+                        sample['pos'].append(data_as_dicts[idx]['text'])
+                        sample['pos_l'].append(data_as_dicts[idx]['label'])
+                        sample['pos_i'].append(int(idx))
 
                 num_missing = nn - len(sample['neg'])
                 if num_missing > 0:
@@ -490,17 +521,21 @@ def fa_hard_neg(args) -> int:
                         sample['neg_i'].append(int(idx))
                         sample['inb_neg_i'].append(int(idx))
 
-                model_samples[m_name].append(sample)
+                if len(sample['pos']) == 0:
+                    logger.warning(f'Missing positive sample for {indices[i]}')
+                else:
+                    model_samples[m_name].append(sample)
 
-        # if start_idx > batch_size:  # for debug
-        #     break
+        # if start_idx >= 128:  # for debug
+        #    break
 
     for m_name, m_item in model_samples.items():
         jsonl_file_name = f'{m_name}_{args.collection}_hn.jsonl'
         jsonl_path = os.path.join(args.data_in_dir, jsonl_file_name)
         with open(jsonl_path, 'w', encoding='utf-8') as fp:
             for i, sample in enumerate(model_samples[m_name]):
-                json.dump(sample, fp, indent=2)
+                # noinspection PyTypeChecker
+                json.dump(sample, fp)
                 fp.write('\n')
     return 0
 
@@ -518,9 +553,9 @@ def fa_test_rae(args) -> int:
 
     train_coll_name = args.collection + '_train'
     test_coll_name = args.collection + '_test'
-    data_as_dicts = _load_data(args, test_coll_name)
+    data_as_dicts, _ = _load_data(args, test_coll_name)
 
-    model_data = init_model_data(args, labeler, 'raexmc', models)
+    model_data = init_model_data(args, labeler, faiss.METRIC_L2, 'raexmc', models)
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     # subject to grid search
@@ -536,7 +571,7 @@ def fa_test_rae(args) -> int:
             k_v = np.vstack([m_item['x_data']['y_true'] * lamb, m_item['v_data']['y_id'] * (1 - lamb)])
         else:
             k_v = m_item['x_data']['y_true'] * lamb
-        m_item['temperature'] = 1 / math.sqrt(m_item['dim'])  # 1 / sqrt(dim)
+        m_item['temperature'] = 0.04  # 1 / math.sqrt(m_item['dim'])  # 1 / sqrt(dim)
         m_item['topk'] = topk
         m_item['values'] = torch.from_numpy(k_v.astype(np.float32)).to(device)
 
@@ -592,7 +627,7 @@ def fa_test_zshot(args) -> int:
     test_coll_name = args.collection + '_test'
     data_as_dicts, _ = _load_data(args, test_coll_name)
 
-    model_data = init_model_data(args, labeler, 'zshot', models)
+    model_data = init_model_data(args, labeler, faiss.METRIC_L2, 'zshot', models)
 
     t0 = time.time()
     for chunk in tqdm(_chunk_data(data_as_dicts, chunk_size=384), desc='Processing RAE-XML complete eval.'):
@@ -663,7 +698,7 @@ def fa_test_mlknn(args) -> int:
         index.hnsw.efConstruction = 500  # Controls index construction accuracy/speed trade-off
         index.hnsw.efSearch = 300  # Controls search accuracy/speed trade-off
         # noinspection PyArgumentList
-        index.add(k_embeddings)
+        index.add(k_embeddings[:100,:])
 
         def knn_search(ebd: np.ndarray, i: int, k: int):
             v = ebd[i].reshape(1, -1).astype(np.float32)  # 2D vector
@@ -672,10 +707,30 @@ def fa_test_mlknn(args) -> int:
             indices = np.delete(indices, np.where(indices == i))  # remove self
             return indices
 
-        #mlknn = MLkNN(k_embeddings, y_true, 10, 1, knn_search)
-        #mlknn.fit()
-        mlknn = MLkNN(k=10, s=1.0, ignore_first_neighbours=1)
-        mlknn.fit(k_embeddings, y_true)
+        def knn_search2(queries: np.ndarray, k: int):
+            # Ensure the queries are 2D
+            queries = queries.reshape(-1, queries.shape[1]).astype(np.float32)
+
+            # Perform a batched search for all query vectors
+            # noinspection PyArgumentList
+            sim, indices = index.search(queries, k=(k + 1))
+
+            indices = np.delete(indices, 0, axis=1)
+
+            # Pad with -1 if fewer than k neighbors are found
+            #padded_indices = np.full((len(queries), k), -1, dtype=int)
+            #for i in range(len(indices)):
+            #    padded_indices[i, :len(indices[i])] = indices[i]
+
+            return indices
+
+        mlknn = MLkNN5(10, 1, knn_search2)
+        t_train_x = k_embeddings[:100, :]
+        t_train_y = y_true[:100, :]
+        t_test_x = k_embeddings[100:200, :]
+        t_test_y = y_true[100:200, :]
+        mlknn.fit(t_train_x, t_train_y)
+        t_pred_y = mlknn.predict(t_test_x)
 
         model_data[m_name]['embedder'] = model
         model_data[m_name]['dim'] = dim
