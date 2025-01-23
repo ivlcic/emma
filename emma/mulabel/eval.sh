@@ -47,3 +47,10 @@
 ./mulabel fa test_zshot -c eurlex --ptm_models bge_m3,jina3,gte
 ./mulabel fa test_zshot -c eurlex --ptm_models bge_m3,jina3,gte --test_l_class Rare
 ./mulabel fa test_zshot -c eurlex --ptm_models bge_m3,jina3,gte --test_l_class Frequent
+
+./mulabel fa test_mlknn -c mulabel -l sl --public --ptm_models bge_m3,jina3,gte
+./mulabel fa test_mlknn -c mulabel -l sl --public --ptm_models bge_m3,jina3,gte --test_l_class Rare
+./mulabel fa test_mlknn -c mulabel -l sl --public --ptm_models bge_m3,jina3,gte --test_l_class Frequent
+./mulabel fa test_mlknn -c eurlex --ptm_models bge_m3,jina3,gte
+./mulabel fa test_mlknn -c eurlex --ptm_models bge_m3,jina3,gte --test_l_class Rare
+./mulabel fa test_mlknn -c eurlex --ptm_models bge_m3,jina3,gte --test_l_class Frequent
