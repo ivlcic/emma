@@ -559,7 +559,7 @@ def fa_test_rae(args) -> int:
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     # subject to grid search
-    lamb = 0.5
+    # lamb = 0.5
     lamb = 1
     topk = 50  # Number of nearest neighbors to retrieve
     threshold = 0.5  # Probability to classify as a positive
@@ -680,6 +680,7 @@ def fa_test_mlknn(args) -> int:
 
         return indices
 
+    threshold = 0.5
     topk = 50  # Number of nearest neighbors to retrieve
     for m_name, m_item in model_data.items():
         embeddings = m_item['x_data']['embeddings']
@@ -702,74 +703,14 @@ def fa_test_mlknn(args) -> int:
             query_vectors = query_vectors.astype(np.float32)  # Ensure correct dtype
 
             predictions, probabilities = data['mlknn'].predict(query_vectors)
-            data['y_pred'].extend(predictions)
+            data['y_pred'].extend(probabilities)
             data['y_true'].extend(yl_true)
 
     logger.info(f'Measured performance in {(time.time() - t0):8.2f} seconds')
     logger.info(f'Computing metrics')
     for m_name, m_item in model_data.items():
         y_true_m, y_pred_m = filter_metrics(args, labeler, m_item['y_true'], m_item['y_pred'])
-        m_item['metrics'](y_true_m, y_pred_m, 'test/')
-        m_item['metrics'].dump(args.data_result_dir, None, None, 100)
-
-    logger.info(f'Computation done in {(time.time() - t0):8.2f} seconds')
-    return 0
-
-
-def fa_test_mlknn2(args) -> int:
-    """
-    ./mulabel fa test_mlknn -c mulabel -l sl --public --ptm_models bge_m3,jinav3,gte
-    """
-    os.environ['HF_HOME'] = args.tmp_dir  # local tmp dir
-
-    compute_arg_collection_name(args)
-    models = _init_ebd_models(args)
-    labeler = init_labeler(args)
-
-    model_data = init_model_data(args, labeler, faiss.METRIC_L2, 'mlknn', models)
-
-    def knn_search(mn: str, queries: np.ndarray, k: int):
-        # Ensure the queries are 2D
-        queries = queries.reshape(-1, queries.shape[1]).astype(np.float32)
-
-        # Perform a batched search for all query vectors
-        # noinspection PyArgumentList
-        index = model_data[mn]['index']
-        sim, indices = index.search(queries, k=(k + 1))
-        indices = np.delete(indices, 0, axis=1)  # remove first - self match
-
-        return indices
-
-    topk = 50  # Number of nearest neighbors to retrieve
-    for m_name, m_item in model_data.items():
-        embeddings = m_item['x_data']['embeddings']
-        y_true = m_item['x_data']['y_true']
-        mlknn = MLkNNAlt(m_name, topk, knn_search)  # alternative to test
-        mlknn.fit(embeddings, y_true)
-        m_item['mlknn'] = mlknn
-
-    train_coll_name = args.collection + '_train'
-    test_coll_name = args.collection + '_test'
-    data_as_dicts, _ = _load_data(args, test_coll_name)
-
-    t0 = time.time()
-    for chunk in tqdm(_chunk_data(data_as_dicts, chunk_size=384), desc='Processing RAE-XML complete eval.'):
-        texts = [item['text'] for item in chunk]
-        yl_true = np.array(labeler.vectorize([item['label'] for item in chunk]))
-        for model_name, data in model_data.items():
-            # Generate embeddings for the batch of texts
-            query_vectors = data['embedder'](texts)  # Assuming the embedder supports batch processing
-            query_vectors = query_vectors.astype(np.float32)  # Ensure correct dtype
-
-            predictions, probabilities = data['mlknn'].predict(query_vectors)
-            data['y_pred'].extend(predictions)
-            data['y_true'].extend(yl_true)
-
-    logger.info(f'Measured performance in {(time.time() - t0):8.2f} seconds')
-    logger.info(f'Computing metrics')
-    for m_name, m_item in model_data.items():
-        y_true_m, y_pred_m = filter_metrics(args, labeler, m_item['y_true'], m_item['y_pred'])
-        m_item['metrics'](y_true_m, y_pred_m, 'test/')
+        m_item['metrics'](y_true_m, y_pred_m, 'test/', threshold)
         m_item['metrics'].dump(args.data_result_dir, None, None, 100)
 
     logger.info(f'Computation done in {(time.time() - t0):8.2f} seconds')

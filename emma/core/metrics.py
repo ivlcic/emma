@@ -75,6 +75,12 @@ class Metrics:
             y_pred = (y_prob > prob_threshold).astype(np.float32)
         else:
             y_pred = np.argmax(y_prob, axis=-1)
+
+        # There was an issue where we had single TP prediction among 400 samples with 1600 labels
+        num_required_predictions = y_pred.shape[0] / 100  # at least 1% of the samples should have predictions
+        num_required_predictions = 2 if num_required_predictions < 2 else num_required_predictions
+        num_predicted = len(np.nonzero(y_pred)[0])
+
         metric = {}
         for average_type in ['micro', 'macro', 'weighted']:
             if self.prob_type == 'binary' and not average_type == 'macro':
@@ -82,10 +88,18 @@ class Metrics:
             p = precision_score(y_true, y_pred, average=average_type)
             r = recall_score(y_true, y_pred, average=average_type)
             f1 = f1_score(y_true, y_pred, average=average_type)
+            if p > 0.99 and num_predicted <= num_required_predictions:
+                p = 0.0
+                f1 = 0.0
+                r = 0.0
             metric[f'{prefix}{average_type}.f1'] = f1
             metric[f'{prefix}{average_type}.p'] = p
             metric[f'{prefix}{average_type}.r'] = r
-        metric[f'{prefix}acc'] = accuracy_score(y_true, y_pred)
+
+        acc = accuracy_score(y_true, y_pred)
+        if num_predicted <= num_required_predictions:
+            acc = 0.0
+        metric[f'{prefix}acc'] = acc
         if self.prob_type == 'multilabel':
             for k in self.k_values:
                 metric = metric | MetricsAtK(y_true, y_prob, k).todict(prefix)
