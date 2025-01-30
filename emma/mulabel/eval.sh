@@ -54,3 +54,26 @@
 ./mulabel fa test_mlknn -c eurlex --ptm_models bge_m3,jina3,gte
 ./mulabel fa test_mlknn -c eurlex --ptm_models bge_m3,jina3,gte --test_l_class Rare
 ./mulabel fa test_mlknn -c eurlex --ptm_models bge_m3,jina3,gte --test_l_class Frequent
+
+
+
+./mulabel fa test_rae -c mulabel -l sl --public --ptm_models m_bge_m3
+./mulabel fa test_rae -c mulabel -l sl --public --ptm_models m_bge_m3 --test_l_class Rare
+./mulabel fa test_rae -c mulabel -l sl --public --ptm_models m_bge_m3 --test_l_class Frequent
+./mulabel fa test_rae -c eurlex --ptm_models e_bge_m3
+./mulabel fa test_rae -c eurlex --ptm_models e_bge_m3 --test_l_class Rare
+./mulabel fa test_rae -c eurlex --ptm_models e_bge_m3 --test_l_class Frequent
+
+./mulabel fa test_zshot -c mulabel -l sl --public --ptm_models m_bge_m3
+./mulabel fa test_zshot -c mulabel -l sl --public --ptm_models m_bge_m3 --test_l_class Rare
+./mulabel fa test_zshot -c mulabel -l sl --public --ptm_models m_bge_m3 --test_l_class Frequent
+./mulabel fa test_zshot -c eurlex --ptm_models e_bge_m3
+./mulabel fa test_zshot -c eurlex --ptm_models e_bge_m3 --test_l_class Rare
+./mulabel fa test_zshot -c eurlex --ptm_models e_bge_m3 --test_l_class Frequent
+
+./mulabel fa test_mlknn -c mulabel -l sl --public --ptm_models m_bge_m3
+./mulabel fa test_mlknn -c mulabel -l sl --public --ptm_models m_bge_m3 --test_l_class Rare
+./mulabel fa test_mlknn -c mulabel -l sl --public --ptm_models m_bge_m3 --test_l_class Frequent
+./mulabel fa test_mlknn -c eurlex --ptm_models e_bge_m3
+./mulabel fa test_mlknn -c eurlex --ptm_models e_bge_m3 --test_l_class Rare
+./mulabel fa test_mlknn -c eurlex --ptm_models e_bge_m3 --test_l_class Frequent

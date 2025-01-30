@@ -134,6 +134,30 @@ def _init_ebd_models(args) -> Dict[str, Callable[[Union[str, List[str]]], np.nda
 
             models[ptm_name] = bge_m3_embed
 
+        if ptm_name == 'm_bge_m3':
+
+            mbmodel = BGEM3FlagModel(
+                str(os.path.join(args.data_result_dir, 'test', name)),
+                use_fp16=True, device='cuda' if torch.cuda.is_available() else 'cpu'
+            )
+
+            def mbge_m3_embed(text_to_embed: Union[str, List[str]]):
+                return mbmodel.encode(text_to_embed)['dense_vecs']
+
+            models[ptm_name] = mbge_m3_embed
+
+        if ptm_name == 'e_bge_m3':
+
+            ebmodel = BGEM3FlagModel(
+                str(os.path.join(args.data_result_dir, 'test', name)),
+                use_fp16=True, device='cuda' if torch.cuda.is_available() else 'cpu'
+            )
+
+            def ebge_m3_embed(text_to_embed: Union[str, List[str]]):
+                return ebmodel.encode(text_to_embed)['dense_vecs']
+
+            models[ptm_name] = ebge_m3_embed
+
         if ptm_name == 'jina3':
             jmodel = AutoModel.from_pretrained(
                 name, trust_remote_code=True
@@ -576,7 +600,7 @@ def fa_test_rae(args) -> int:
         m_item['values'] = torch.from_numpy(k_v.astype(np.float32)).to(device)
 
     t1 = time.time()
-    for chunk in tqdm(_chunk_data(data_as_dicts, chunk_size=384), desc='Processing RAE-XML complete eval.'):
+    for chunk in tqdm(_chunk_data(data_as_dicts, chunk_size=384), desc='Processing RAE-XML eval.'):
         texts = [item['text'] for item in chunk]
         yl_true = np.array(labeler.vectorize([item['label'] for item in chunk]))
         for model_name, data in model_data.items():
@@ -630,7 +654,7 @@ def fa_test_zshot(args) -> int:
     model_data = init_model_data(args, labeler, faiss.METRIC_L2, 'zshot', models)
 
     t0 = time.time()
-    for chunk in tqdm(_chunk_data(data_as_dicts, chunk_size=384), desc='Processing RAE-XML complete eval.'):
+    for chunk in tqdm(_chunk_data(data_as_dicts, chunk_size=384), desc='Processing zero shot eval.'):
         texts = [item['text'] for item in chunk]
         yl_true = np.array(labeler.vectorize([item['label'] for item in chunk]))
         for model_name, data in model_data.items():
@@ -694,7 +718,7 @@ def fa_test_mlknn(args) -> int:
     data_as_dicts, _ = _load_data(args, test_coll_name)
 
     t0 = time.time()
-    for chunk in tqdm(_chunk_data(data_as_dicts, chunk_size=384), desc='Processing RAE-XML complete eval.'):
+    for chunk in tqdm(_chunk_data(data_as_dicts, chunk_size=384), desc='Processing ML-KNN eval.'):
         texts = [item['text'] for item in chunk]
         yl_true = np.array(labeler.vectorize([item['label'] for item in chunk]))
         for model_name, data in model_data.items():

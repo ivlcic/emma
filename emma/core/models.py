@@ -36,7 +36,9 @@ retrieve_model_name_map = {
     'bge_m3': 'BAAI/bge-m3',
     'jina3': 'jinaai/jina-embeddings-v3',
     'gte': 'Alibaba-NLP/gte-multilingual-base',
-    'kalm_v15': 'HIT-TMG/KaLM-embedding-multilingual-mini-instruct-v1.5'
+    'kalm_v15': 'HIT-TMG/KaLM-embedding-multilingual-mini-instruct-v1.5',
+    'm_bge_m3': 'mulabel_bge-m3',
+    'e_bge_m3': 'eurlex_bge-m3',
 }
 
 
