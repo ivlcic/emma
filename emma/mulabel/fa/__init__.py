@@ -579,7 +579,7 @@ def fa_test_rae(args) -> int:
     test_coll_name = args.collection + '_test'
     data_as_dicts, _ = _load_data(args, test_coll_name)
 
-    model_data = init_model_data(args, labeler, faiss.METRIC_L2, 'raexmc', models)
+    model_data = init_model_data(args, labeler, faiss.METRIC_L2, 'raexmc_sqrt_', models)
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     # subject to grid search
@@ -612,7 +612,7 @@ def fa_test_rae(args) -> int:
             sim, indices = data['index'].search(query_vectors, data['topk'])  # Batched search
             sim = torch.from_numpy(sim).to(device)
             # Convert similarities to probability distribution using softmax
-            sim = F.softmax(-sim / data['temperature'], dim=-1)
+            sim = F.softmax(-torch.sqrt(sim) / data['temperature'], dim=-1)
             # Initialize qKT tensor for the batch
             batch_size = len(texts)
             qKT = torch.zeros((batch_size, data['k_dim']), dtype=torch.float32).to(device)
@@ -736,6 +736,51 @@ def fa_test_mlknn(args) -> int:
         y_true_m, y_pred_m = filter_metrics(args, labeler, m_item['y_true'], m_item['y_pred'])
         m_item['metrics'](y_true_m, y_pred_m, 'test/', threshold)
         m_item['metrics'].dump(args.data_result_dir, None, None, 100)
+
+    logger.info(f'Computation done in {(time.time() - t0):8.2f} seconds')
+    return 0
+
+
+def fa_export_label_space(args) -> int:
+    """
+    ./mulabel fa export_label_space -c mulabel -l sl --public --ptm_models bge_m3,jinav3,gte
+    """
+    os.environ['HF_HOME'] = args.tmp_dir  # local tmp dir
+
+    compute_arg_collection_name(args)
+    labeler = init_labeler(args)
+
+    labels_map_filename = os.path.join(args.data_out_dir, args.collection + '_map_labels.csv')
+    labels_map_df = pd.read_csv(str(labels_map_filename), encoding='utf-8')
+    labels_maps = labels_map_df.to_dict(orient='records')
+    labels_map = {item['id']: item for item in labels_maps}
+
+
+    train_coll_name = args.collection + '_train'
+    dev_coll_name = args.collection + '_dev'
+    data_as_dicts, _ = _load_data(args, train_coll_name)
+    data = []
+    t0 = time.time()
+    for chunk in tqdm(_chunk_data(data_as_dicts, chunk_size=384), desc='Processing zero shot eval.'):
+        doc_ids = [item['a_id'] for item in chunk]
+        yl_true = labeler.vectorize([item['label'] for item in chunk]).tolist()
+        for i in range(len(yl_true)):
+            yl_true[i].insert(0, doc_ids[i])
+        data.extend(yl_true)
+
+    logger.info(f'Measured performance in {(time.time() - t0):8.2f} seconds')
+
+
+    headers = ['doc_id']
+    for i in range(labeler.num_labels):
+        label_id = labeler.encoder.classes_[i]
+        label_name = labels_map[label_id]['name']
+        headers.append(label_name)
+
+    df = pd.DataFrame(data, columns=headers)
+
+    file_path = 'exported_label_space.tsv'
+    df.to_csv(os.path.join(args.data_result_dir, file_path), sep='\t', index=False, encoding='utf-8')
 
     logger.info(f'Computation done in {(time.time() - t0):8.2f} seconds')
     return 0

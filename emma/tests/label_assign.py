@@ -9,7 +9,7 @@ from argparse import ArgumentParser
 
 from ..core.args import CommonArguments
 
-logger = logging.getLogger('tests.ir_metrics')
+logger = logging.getLogger('tests.label_assign')
 
 
 def add_args(module_name: str, parser: ArgumentParser) -> None:

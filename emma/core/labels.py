@@ -32,7 +32,7 @@ class Labeler(ABC):
     def get_type_code(self):
         pass
 
-    def vectorize(self, labels: Union[List, ndarray]) -> List:
+    def vectorize(self, labels: Union[List, ndarray]) -> ndarray:
         if not self.computed:
             self.fit()
 
