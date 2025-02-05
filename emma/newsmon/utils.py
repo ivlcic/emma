@@ -58,6 +58,14 @@ def init_labeler(args) -> Labeler:
     return labeler
 
 
+def get_index_path(args) -> str:
+    index_path = os.path.join(args.data_result_dir, 'index')
+    if not os.path.exists(index_path):
+        os.makedirs(index_path)
+    index_path = os.path.join(args.data_result_dir, 'index', args.collection)
+    return str(index_path)
+
+
 # noinspection DuplicatedCode
 def construct_datasets(text_set, label_set, tokenizer, max_len: int = 512) -> Tuple[Dict[str, TruncatedDataset], int]:
     datasets = {}

@@ -1,17 +1,21 @@
 import os
+import ast
 import logging
 import time
+import random
+import numpy as np
 import pandas as pd
 
 from typing import Dict, Any, List
 from argparse import ArgumentParser
 from tqdm import tqdm
 
+from ..embd_model import EmbeddingModelWrapperFactory
 from ...core.args import CommonArguments
 from ...core.models import retrieve_model_name_map
 
 from ..tokenizer import get_segmenter
-from ..utils import compute_arg_collection_name, init_labeler, load_data, chunk_data
+from ..utils import compute_arg_collection_name, init_labeler, load_data, chunk_data, get_index_path
 from ..const import __supported_languages, __label_split_names, __supported_passage_sizes
 
 
@@ -85,9 +89,10 @@ def __find_label_in_text(kwes: List[str], doc) -> List[str]:
     return passages
 
 
+# noinspection DuplicatedCode
 def prep_lrp_extract(args) -> int:
     """
-    ./mulabel fa lrp_extract -c mulabel -l sl --public
+    ./newsmon fa lrp_extract -c mulabel -l sl --public
     """
     os.environ['HF_HOME'] = args.tmp_dir  # local tmp dir
     compute_arg_collection_name(args)
@@ -112,9 +117,10 @@ def prep_lrp_extract(args) -> int:
     return 0
 
 
+# noinspection DuplicatedCode
 def prep_init_pseudo_labels(args) -> int:
     """
-    ./mulabel fa init_pseudo_labels -c mulabel -l sl --public
+    ./newsmon fa init_pseudo_labels -c mulabel -l sl --public
     """
     os.environ['HF_HOME'] = args.tmp_dir  # local tmp dir
 
@@ -168,6 +174,86 @@ def prep_init_pseudo_labels(args) -> int:
     labels_df = pd.DataFrame(labels_df_data)
     labels_df.to_csv(os.path.join(
         args.data_in_dir, f'{args.collection}_labels_descr.csv'), index=False, encoding='utf-8')
+
+    return 0
+
+
+# noinspection DuplicatedCode
+def _select_random_sentences(passages, max_chars):
+    selected_sentences = []
+    total_chars = 0
+
+    # Shuffle the list to ensure randomness
+    random.shuffle(passages)
+
+    for sentence in passages:
+        # Check if adding the current sentence exceeds the max character limit
+        if total_chars + len(sentence) <= max_chars:
+            selected_sentences.append(sentence)
+            total_chars += len(sentence)
+        else:
+            break
+
+    return ' '.join(selected_sentences)
+
+
+# noinspection DuplicatedCode
+def prep_init_rae_v(args) -> int:
+    """
+    ./newsmon prep init_rae_v -c mulabel -l sl --public --ptm_models bge_m3,jinav3,gte
+    """
+    os.environ['HF_HOME'] = args.tmp_dir  # local tmp dir
+
+    compute_arg_collection_name(args)
+    models = EmbeddingModelWrapperFactory.init_models(args)
+    labeler = init_labeler(args)
+
+    # read label descriptions / passages
+    label_descr_file_path = os.path.join(args.data_in_dir, f'{args.collection}_labels_descr.csv')
+    if not os.path.exists(label_descr_file_path):
+        logger.warning(f'Missing label description file [{label_descr_file_path}]. '
+                       f'Run [./newsmon prep init_pseudo_labels -c mulabel -l sl --public] or similar first!')
+        return 1
+    label_descr_df = pd.read_csv(label_descr_file_path)
+    label_descr_df['passages'] = label_descr_df['passages'].apply(ast.literal_eval)
+    label_descr_df['texts'] = label_descr_df['texts'].apply(ast.literal_eval)
+    label_descr_df['label_info'] = label_descr_df['label_info'].apply(ast.literal_eval)
+
+    random.seed(2611)
+    num_labels = labeler.num_labels
+    descr_size_chars = 2000
+    labels: Dict[str: Dict[str, Any]] = {}
+    for model_name in models:
+        labels[model_name] = {}
+        labels[model_name]['samples'] = num_labels
+        labels[model_name]['v_train'] = []
+        labels[model_name]['y_id'] = []
+
+    texts = ['_'] * num_labels
+    label_id_map = labeler.labels_to_ids()
+    for label in label_descr_df.to_dict('records'):
+        if label['passages'] and label['texts']:
+            text = _select_random_sentences(label['passages'], descr_size_chars)
+        elif label['passages']:
+            text = _select_random_sentences(label['passages'], descr_size_chars)
+        else:
+            random.shuffle(label['texts'])
+            text = label['texts'][0]
+        l_id = label_id_map[label['label']]
+        texts[l_id] = text
+
+    for chunk in chunk_data(texts, chunk_size=384):
+        for model_name, model in models.items():
+            ret = model.embed(chunk)
+            labels[model_name]['v_train'].append(ret)
+
+    index_path = get_index_path(args)
+    for model_name in models:
+        data_dict = labels[model_name]
+        data_dict['v_train'] = np.vstack(labels[model_name]['v_train'])
+        data_dict['y_id'] = np.identity(num_labels)
+        # noinspection PyTypeChecker
+        np.savez_compressed(index_path + '.' + model_name + '_v.npz', **data_dict)
 
     return 0
 
