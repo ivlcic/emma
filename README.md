@@ -29,9 +29,13 @@ So you need to
 chmod +x newsmon
 ```
 
-Each script invokes a module in `emma/[script-name]` directory based on a command.
+Each script invokes a module in `emma/[module-name]` directory based on a command.
 
 For instance
 `./newsmon fa test_rae -c newsmon -l sl --public`
 
 This invokes `fa_test_rae` function from the `emma/newsmon/fa/__init__.py` script.
+
+The data is usually loaded from `data/[module-name]` dir, results are put in `result/[module-name]` and,   
+temporary space is in `tmp/[module-name]`
+
