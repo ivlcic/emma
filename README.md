@@ -15,7 +15,8 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-If you have problems with flash-attn plugin install wheel first: `pip install wheel`
+If you have problems with the `flash-attn` pip module install wheel first: `pip install wheel`,  
+so that module gets compiled with your GPU support.
 
 In the root of a directory you have an entry-point scripts:
 ```bash
