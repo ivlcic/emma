@@ -18,10 +18,20 @@ pip install -r requirements.txt
 If you have problems with flash-attn plugin install wheel first: `pip install wheel`
 
 In the root of a directory you have an entry-point scripts:
-```
+```bash
 ./longdoc  # for long documents embeddings tests
-./mulabel  # DEPRECATED module
+./mulabel  # DEPRECATED module too much mess
 ./newsmon  # Information retrieval based multilabel classification 
 ```
 
-Each script invokes a module in `emma/[script-name]` directory based on a command. 
+So you need to
+```bash
+chmod +x newsmon
+```
+
+Each script invokes a module in `emma/[script-name]` directory based on a command.
+
+For instance
+`./newsmon fa test_rae -c newsmon -l sl --public`
+
+This invokes `fa_test_rae` function from the `emma/newsmon/fa/__init__.py` script.
