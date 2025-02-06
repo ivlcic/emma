@@ -1,4 +1,5 @@
 ## Environment preparation
+DEPRECATED
 
 Activate the Python virtual environment
 ```bash
