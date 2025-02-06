@@ -139,6 +139,8 @@ def init_model_data(args,
 # noinspection DuplicatedCode
 def bo_test_rae(args) -> int:
     """
+    Warning this uses L2 metric same as original paper authors, although in paper they use similarity
+    (dot product of normalized vectors)
     ./newsmon bo test_rae -c newsmon -l sl --public --ptm_models bge_m3,jinav3,gte
     """
     compute_arg_collection_name(args)

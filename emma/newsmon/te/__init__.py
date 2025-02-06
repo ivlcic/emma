@@ -31,7 +31,7 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
     CommonArguments.result_dir(module_name, parser, ('-o', '--data_out_dir'))
     CommonArguments.tmp_dir(module_name, parser, ('-t', '--tmp_dir'))
     parser.add_argument(
-        '-c', '--collection', help='Collection to manage.', type=str, default='mulabel'
+        '-c', '--collection', help='Collection to manage.', type=str, default='newsmon'
     )
     parser.add_argument(
         '-l', '--lang',
@@ -188,10 +188,10 @@ def init_task(args) -> Tuple[str, Any]:
 def te_train(args) -> int:
     """
     Train transformer encoder models
-    ./mulabel te train --batch 16 --epochs 30 --lr 3e-5 \
+    ./newsmon te train --batch 16 --epochs 30 --lr 3e-5 \
        --ptm_name xlmrb -c eurlex --num_workers 4 --seed 7681 --run_id 1
-    ./mulabel te train --batch 16 --epochs 30 --lr 3e-5 \
-       --ptm_name xlmrb -c mulabel -l sl --public --num_workers 4 --seed 4823 --run_id 1
+    ./newsmon te train --batch 16 --epochs 30 --lr 3e-5 \
+       --ptm_name xlmrb -c newsmon -l sl --public --num_workers 4 --seed 4823 --run_id 1
     """
 
     # https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html#torch.set_float32_matmul_precision
@@ -283,47 +283,41 @@ def te_train(args) -> int:
 # noinspection DuplicatedCode
 def te_test(args) -> int:
     """
-    ./mulabel te test --ptm_name xlmrb_news_sl-p1s0_x0_b16_e30_s1425_lr3e-05 -c mulabel_sl_p1_s0_filtered_article
-    ./mulabel te test --ptm_name xlmrb_news_sl-p1s0_x0_b16_e30_s1710_lr3e-05 -c mulabel_sl_p1_s0_filtered_article
-    ./mulabel te test --ptm_name xlmrb_news_sl-p1s0_x0_b16_e30_s3821_lr3e-05 -c mulabel_sl_p1_s0_filtered_article
-    ./mulabel te test --ptm_name xlmrb_news_sl-p1s0_x0_b16_e30_s4823_lr3e-05 -c mulabel_sl_p1_s0_filtered_article
-    ./mulabel te test --ptm_name xlmrb_news_sl-p1s0_x0_b16_e30_s5327_lr3e-05 -c mulabel_sl_p1_s0_filtered_article
+    ./newsmon te test --ptm_name xlmrb_newsmon_sl_p1_s0_x4_b16_e30_s1710_lr3e-05 -c newsmon_sl_p1_s0
+    ./newsmon te test --ptm_name xlmrb_newsmon_sl_p1_s0_x4_b16_e30_s2573_lr3e-05 -c newsmon_sl_p1_s0
+    ./newsmon te test --ptm_name xlmrb_newsmon_sl_p1_s0_x4_b16_e30_s3821_lr3e-05 -c newsmon_sl_p1_s0
+    ./newsmon te test --ptm_name xlmrb_newsmon_sl_p1_s0_x4_b16_e30_s4823_lr3e-05 -c newsmon_sl_p1_s0
+    ./newsmon te test --ptm_name xlmrb_newsmon_sl_p1_s0_x4_b16_e30_s7352_lr3e-05 -c newsmon_sl_p1_s0
 
-    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s1710_lr3e-05 -c mulabel_sl_p1_s0
-    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s2573_lr3e-05 -c mulabel_sl_p1_s0
-    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s3821_lr3e-05 -c mulabel_sl_p1_s0
-    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s4823_lr3e-05 -c mulabel_sl_p1_s0
-    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s7352_lr3e-05 -c mulabel_sl_p1_s0
+    ./newsmon te test --ptm_name xlmrb_newsmon_sl_p1_s0_x4_b16_e30_s1710_lr3e-05 -c newsmon_sl_p1_s0 --test_l_class Rare
+    ./newsmon te test --ptm_name xlmrb_newsmon_sl_p1_s0_x4_b16_e30_s2573_lr3e-05 -c newsmon_sl_p1_s0 --test_l_class Rare
+    ./newsmon te test --ptm_name xlmrb_newsmon_sl_p1_s0_x4_b16_e30_s3821_lr3e-05 -c newsmon_sl_p1_s0 --test_l_class Rare
+    ./newsmon te test --ptm_name xlmrb_newsmon_sl_p1_s0_x4_b16_e30_s4823_lr3e-05 -c newsmon_sl_p1_s0 --test_l_class Rare
+    ./newsmon te test --ptm_name xlmrb_newsmon_sl_p1_s0_x4_b16_e30_s7352_lr3e-05 -c newsmon_sl_p1_s0 --test_l_class Rare
 
-    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s1710_lr3e-05 -c mulabel_sl_p1_s0 --test_l_class Rare
-    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s2573_lr3e-05 -c mulabel_sl_p1_s0 --test_l_class Rare
-    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s3821_lr3e-05 -c mulabel_sl_p1_s0 --test_l_class Rare
-    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s4823_lr3e-05 -c mulabel_sl_p1_s0 --test_l_class Rare
-    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s7352_lr3e-05 -c mulabel_sl_p1_s0 --test_l_class Rare
+    ./newsmon te test --ptm_name xlmrb_newsmon_sl_p1_s0_x4_b16_e30_s1710_lr3e-05 -c newsmon_sl_p1_s0 --test_l_class Frequent
+    ./newsmon te test --ptm_name xlmrb_newsmon_sl_p1_s0_x4_b16_e30_s2573_lr3e-05 -c newsmon_sl_p1_s0 --test_l_class Frequent
+    ./newsmon te test --ptm_name xlmrb_newsmon_sl_p1_s0_x4_b16_e30_s3821_lr3e-05 -c newsmon_sl_p1_s0 --test_l_class Frequent
+    ./newsmon te test --ptm_name xlmrb_newsmon_sl_p1_s0_x4_b16_e30_s4823_lr3e-05 -c newsmon_sl_p1_s0 --test_l_class Frequent
+    ./newsmon te test --ptm_name xlmrb_newsmon_sl_p1_s0_x4_b16_e30_s7352_lr3e-05 -c newsmon_sl_p1_s0 --test_l_class Frequent
 
-    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s1710_lr3e-05 -c mulabel_sl_p1_s0 --test_l_class Frequent
-    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s2573_lr3e-05 -c mulabel_sl_p1_s0 --test_l_class Frequent
-    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s3821_lr3e-05 -c mulabel_sl_p1_s0 --test_l_class Frequent
-    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s4823_lr3e-05 -c mulabel_sl_p1_s0 --test_l_class Frequent
-    ./mulabel te test --ptm_name xlmrb_mulabel_sl_p1_s0_x4_b16_e30_s7352_lr3e-05 -c mulabel_sl_p1_s0 --test_l_class Frequent
+    ./newsmon te test --ptm_name xlmrb_eurlex_x0_b16_e30_s2611_lr3e-05 -c eurlex_all_p0_s0
+    ./newsmon te test --ptm_name xlmrb_eurlex_x0_b16_e30_s2963_lr3e-05 -c eurlex_all_p0_s0
+    ./newsmon te test --ptm_name xlmrb_eurlex_x0_b16_e30_s4789_lr3e-05 -c eurlex_all_p0_s0
+    ./newsmon te test --ptm_name xlmrb_eurlex_x0_b16_e30_s5823_lr3e-05 -c eurlex_all_p0_s0
+    ./newsmon te test --ptm_name xlmrb_eurlex_x0_b16_e30_s7681_lr3e-05 -c eurlex_all_p0_s0
 
-    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s2611_lr3e-05 -c eurlex_all_p0_s0
-    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s2963_lr3e-05 -c eurlex_all_p0_s0
-    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s4789_lr3e-05 -c eurlex_all_p0_s0
-    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s5823_lr3e-05 -c eurlex_all_p0_s0
-    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s7681_lr3e-05 -c eurlex_all_p0_s0
+    ./newsmon te test --ptm_name xlmrb_eurlex_x0_b16_e30_s2611_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Rare
+    ./newsmon te test --ptm_name xlmrb_eurlex_x0_b16_e30_s2963_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Rare
+    ./newsmon te test --ptm_name xlmrb_eurlex_x0_b16_e30_s4789_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Rare
+    ./newsmon te test --ptm_name xlmrb_eurlex_x0_b16_e30_s5823_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Rare
+    ./newsmon te test --ptm_name xlmrb_eurlex_x0_b16_e30_s7681_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Rare
 
-    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s2611_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Rare
-    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s2963_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Rare
-    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s4789_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Rare
-    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s5823_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Rare
-    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s7681_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Rare
-
-    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s2611_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Frequent
-    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s2963_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Frequent
-    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s4789_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Frequent
-    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s5823_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Frequent
-    ./mulabel te test --ptm_name xlmrb_eurlex_x0_b16_e30_s7681_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Frequent
+    ./newsmon te test --ptm_name xlmrb_eurlex_x0_b16_e30_s2611_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Frequent
+    ./newsmon te test --ptm_name xlmrb_eurlex_x0_b16_e30_s2963_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Frequent
+    ./newsmon te test --ptm_name xlmrb_eurlex_x0_b16_e30_s4789_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Frequent
+    ./newsmon te test --ptm_name xlmrb_eurlex_x0_b16_e30_s5823_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Frequent
+    ./newsmon te test --ptm_name xlmrb_eurlex_x0_b16_e30_s7681_lr3e-05 -c eurlex_all_p0_s0 --test_l_class Frequent
     """
     model_path = os.path.join(args.data_out_dir, 'test', args.ptm_name)
     if not os.path.exists(model_path):
