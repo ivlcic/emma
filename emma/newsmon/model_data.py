@@ -36,8 +36,8 @@ class ModelTestData:
         }
         self.embedder = embedder
 
-        train_data = np.load(self.train_data['path'])  # knowledge input embeddings matrix
-        test_data = np.load(self.test_data['path'])  # knowledge input embeddings matrix
+        train_data = np.load(self.train_data['path'])  # knowledge input train embeddings matrix
+        test_data = np.load(self.test_data['path'])  # test embeddings matrix
         if os.path.exists(self.v_data['path']):
             v_data = np.load(self.v_data['path'])  # knowledge label descr embeddings matrix
             self.has_v = True
@@ -50,7 +50,7 @@ class ModelTestData:
         self.train_data['count'] = np.shape(train_data['y_true'])[0]
 
         if self.has_v:
-            self.embeddings = np.vstack([train_data['x'], self.v_data['x']])  # knowledge embeddings matrix
+            self.embeddings = np.vstack([train_data['x'], self.v_data['x']])  # complete knowledge embeddings matrix
         else:
             self.embeddings = train_data['x']
 
