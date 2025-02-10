@@ -12,11 +12,13 @@ import optuna
 import torch
 import torch.nn.functional as F
 from sklearn.metrics import accuracy_score
+from torch import optim, nn
 from tqdm import tqdm
 
 from ..const import __supported_languages, __label_split_names
 from ..embd_model import EmbeddingModelWrapperFactory, EmbeddingModelWrapper
 from ..mlknn import MLkNN
+from ..model import RaeExt
 from ..model_data import ModelTestData, ModelTestObjective
 from ..utils import compute_arg_collection_name, get_index_path, load_data, chunk_data, init_labeler, filter_metrics
 from ...core.args import CommonArguments
@@ -237,10 +239,10 @@ __best_hyper_params = {
     'newsmon': {
         'raexmc': {
             'bge_m3': {
-                'top_k': 50, 'lambda': 1.0, 'temperature': 0.04
+                'top_k': 13, 'lambda': 0.999, 'temperature': 0.091
             },
             'n_bge_m3': {
-                'top_k': 50, 'lambda': 1.0, 'temperature': 0.04
+                'top_k': 13, 'lambda': 0.815, 'temperature': 0.098
             }
         },
         'raexmcsim': {
@@ -298,15 +300,16 @@ def fa_test_rae(args) -> int:
         if (corpus in __best_hyper_params and method in __best_hyper_params[corpus]
                 and m_name in __best_hyper_params[corpus][method]):
             params = __best_hyper_params[corpus][method][m_name]
-            logger.info(f'Processing RAE distance metrics for {m_name} with optimal hyper-parameters {params}')
+            logger.info(f'Processing RAE-XMC distance metrics for {m_name} with optimal hyper-parameters {params}')
             m_data.set_hyper(params['temperature'], params['top_k'], params['lambda'])
         else:
             m_data.set_hyper(temper, topk, lamb)
 
     t1 = time.time()
     for model_name, m_data in model_data.items():
-        logger.info(f'Processing RAE-XMC eval for {model_name}')
-        for start_idx in tqdm(range(0, m_data.test_data['count'], batch_size), desc='Processing RAE-XMC eval.'):
+        logger.info(f'Processing RAE-XMC distance eval for {model_name}')
+        for start_idx in tqdm(range(0, m_data.test_data['count'], batch_size),
+                              desc='Processing RAE-XMC distance eval.'):
             end_idx = min(start_idx + batch_size, m_data.test_data['count'])
             query_vectors = m_data.test_data['x'][start_idx:end_idx]
             yl_true = m_data.test_data['y_true'][start_idx:end_idx]
@@ -450,7 +453,7 @@ def fa_test_rae_sim(args) -> int:
     models = EmbeddingModelWrapperFactory.init_models(args)
     labeler = init_labeler(args)
 
-    method = 'raexmc'
+    method = 'raexmcsim'
     model_data = init_model_data(args, labeler, faiss.METRIC_INNER_PRODUCT, method, models)
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -466,14 +469,14 @@ def fa_test_rae_sim(args) -> int:
         if (corpus in __best_hyper_params and method in __best_hyper_params[corpus]
                 and m_name in __best_hyper_params[corpus][method]):
             params = __best_hyper_params[corpus][method][m_name]
-            logger.info(f'Processing RAE similarity metrics for {m_name} with optimal hyper-parameters {params}')
+            logger.info(f'Processing RAE-XMC similarity metrics for {m_name} with optimal hyper-parameters {params}')
             m_data.set_hyper(params['temperature'], params['top_k'], params['lambda'])
         else:
             m_data.set_hyper(temper, topk, lamb)
 
     t1 = time.time()
     for model_name, m_data in model_data.items():
-        logger.info(f'Processing RAE-XMC eval for {model_name}')
+        logger.info(f'Processing RAE-XMC similarity eval for {model_name}')
         for start_idx in tqdm(range(0, m_data.test_data['count'], batch_size),
                               desc='Processing RAE-XMC similarity (dot-product) eval.'):
             end_idx = min(start_idx + batch_size, m_data.test_data['count'])
@@ -585,7 +588,7 @@ def fa_optuna_rae_sim(args) -> int:
         objective = RaeObjective(args, m_data, labeler)
         study = optuna.create_study(direction="maximize")  # Assuming higher metric value is better
         study.optimize(objective, n_trials=1000)  # Adjust n_trials as needed
-        objective.log_to_csv(study.best_trial.number, 0, study.best_trial, study.best_trial.params)
+        objective.log_to_csv(study.best_trial.number, 0, study.best_trial.values[0], study.best_trial.params)
     return 0
 
 
@@ -600,9 +603,84 @@ def fa_optuna_rae(args) -> int:
     model_data = init_model_data(args, labeler, faiss.METRIC_L2, 'raexmc', models)
 
     for m_name, m_data in model_data.items():
-        logger.info(f'Processing RAE-XMC similarity based eval for {m_data.name}')
+        logger.info(f'Processing RAE-XMC distance based eval for {m_data.name}')
         objective = RaeObjective(args, m_data, labeler, True)
         study = optuna.create_study(direction="maximize")  # Assuming higher metric value is better
         study.optimize(objective, n_trials=1000)  # Adjust n_trials as needed
-        objective.log_to_csv(study.best_trial.number, 0, study.best_trial, study.best_trial.params)
+        objective.log_to_csv(study.best_trial.number, 0, study.best_trial.values[0], study.best_trial.params)
+    return 0
+
+
+def fa_train_rae_sim_ext(args) -> int:
+    """
+    ./newsmon fa train_rae_sim_ext -c newsmon -l sl --public --ptm_models bge_m3,jinav3,gte
+    """
+    compute_arg_collection_name(args)
+    models = EmbeddingModelWrapperFactory.init_models(args)
+    labeler = init_labeler(args)
+    method = 'raexmcsim'
+    model_data = init_model_data(args, labeler, faiss.METRIC_INNER_PRODUCT, method, models)
+
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    batch_size = 384
+    num_epochs = 10
+
+    lamb = 1
+    topk = 50  # Number of nearest neighbors to retrieve
+    temper = 0.04
+
+    corpus = args.collection_conf
+    for m_name, m_data in model_data.items():
+        if (corpus in __best_hyper_params and method in __best_hyper_params[corpus]
+                and m_name in __best_hyper_params[corpus][method]):
+            params = __best_hyper_params[corpus][method][m_name]
+            logger.info(f'RAE-XMC similarity model {m_name} with optimal hyper-parameters {params} loaded.')
+            m_data.set_hyper(params['temperature'], params['top_k'], 1)  # we will learn lambda matrix
+        else:
+            logger.info(f'RAE-XMC similarity model {m_name} with default hyper-parameters loaded.')
+            m_data.set_hyper(temper, topk, 1)
+
+    for m_name, m_data in model_data.items():
+        logger.info(f'Processing RAE-XMC similarity based train for {m_data.name}')
+        data_set = m_data.dev_data
+        data_len = data_set['count']
+
+        model = RaeExt(
+            values_matrix=m_data.values,
+            index=m_data.index,
+            top_k=m_data.top_k,
+            k_dim=np.shape(m_data.train_data['y_true'])[1],
+            temperature=m_data.temperature,
+            dist_metric=False,
+            device=device
+        ).to(device)
+        criterion = nn.CrossEntropyLoss()
+        optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+        for epoch in range(num_epochs):
+            model.train()
+            running_loss = 0.0
+
+            for start_idx in tqdm(range(0, data_len, batch_size)):
+                end_idx = min(start_idx + batch_size, data_len)
+                query_vectors = data_set['x'][start_idx:end_idx]
+                yl_true = data_set['y_true'][start_idx:end_idx]
+                query_vectors, yl_true = query_vectors.to(device), yl_true.to(device)
+
+                # Zero the parameter gradients
+                optimizer.zero_grad()
+
+                # Forward pass
+                outputs = model(query_vectors)
+
+                # Compute loss
+                loss = criterion(outputs, yl_true)
+
+                # Backward pass and optimization step
+                loss.backward()
+                optimizer.step()
+
+                running_loss += loss.item()
+
+            logger.info(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {running_loss / (data_len / batch_size):.4f}')
     return 0
