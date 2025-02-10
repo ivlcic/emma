@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import pandas as pd
 import torch
 import faiss
 
@@ -30,6 +31,10 @@ class ModelTestData:
             'x': np.array([]), 'y_true': np.array([]), 'path': self.data_path + '.' + self.name + '_test.npz',
             'dim': 0, 'count': 0
         }
+        self.dev_data = {
+            'x': np.array([]), 'y_true': np.array([]), 'path': self.data_path + '.' + self.name + '_dev.npz',
+            'dim': 0, 'count': 0
+        }
         self.v_data = {
             'x': np.array([]), 'y_id': np.array([]), 'path': self.data_path + '.' + self.name + '_v.npz',
             'dim': 0, 'count': 0
@@ -38,6 +43,7 @@ class ModelTestData:
 
         train_data = np.load(self.train_data['path'])  # knowledge input train embeddings matrix
         test_data = np.load(self.test_data['path'])  # test embeddings matrix
+        dev_data = np.load(self.dev_data['path'])  # test embeddings matrix
         if os.path.exists(self.v_data['path']):
             v_data = np.load(self.v_data['path'])  # knowledge label descr embeddings matrix
             self.has_v = True
@@ -58,6 +64,12 @@ class ModelTestData:
         self.test_data['y_true'] = test_data['y_true']
         self.test_data['dim'] = np.shape(test_data['x'])[1]
         self.test_data['count'] = np.shape(test_data['y_true'])[0]
+
+        self.dev_data['x'] = dev_data['x']
+        self.dev_data['y_true'] = dev_data['y_true']
+        self.dev_data['dim'] = np.shape(dev_data['x'])[1]
+        self.dev_data['count'] = np.shape(dev_data['y_true'])[0]
+
         self.metrics = metrics
 
         # init faiss index from embeddings
@@ -86,3 +98,26 @@ class ModelTestData:
         else:
             k_v = self.train_data['y_true'] * lamb
         self.values = torch.from_numpy(k_v.astype(np.float32)).to(self.device)
+
+
+class ModelTestObjective:
+
+    def _get_trial_params(self):
+        return []
+
+    def __init__(self, args, m_data: ModelTestData):
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.m_data = m_data
+        self.args = args
+
+        self.csv_file_name = os.path.join(args.data_result_dir, f'{m_data.metrics.model_name}_trials.csv')
+        columns = ['Trial', 'Time', 'Value']
+        columns += [f'param_{key}' for key in self._get_trial_params()]
+        df = pd.DataFrame(columns=columns)
+        df.to_csv(self.csv_file_name, index=False)
+
+    def _log_to_csv(self, trial_number, t, acc, params):
+        row = {'Trial': trial_number, 'Time': t, 'Value': acc}
+        row.update({f'param_{key}': val for key, val in params.items()})
+        df = pd.DataFrame([row])
+        df.to_csv(self.csv_file_name, mode="a", header=False, index=False, encoding="utf-8")

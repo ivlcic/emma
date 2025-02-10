@@ -1,28 +1,28 @@
 import json
-import os
 import logging
+import os
 import random
 import time
-
 from argparse import ArgumentParser
 from typing import Dict, Any, List
 
-import numpy as np
-import torch
 import faiss
-
+import numpy as np
+import optuna
+import torch
 import torch.nn.functional as F
+from sklearn.metrics import accuracy_score
 from tqdm import tqdm
 
+from ..const import __supported_languages, __label_split_names
 from ..embd_model import EmbeddingModelWrapperFactory, EmbeddingModelWrapper
 from ..mlknn import MLkNN
+from ..model_data import ModelTestData, ModelTestObjective
+from ..utils import compute_arg_collection_name, get_index_path, load_data, chunk_data, init_labeler, filter_metrics
 from ...core.args import CommonArguments
 from ...core.labels import Labeler
 from ...core.metrics import Metrics
 from ...core.models import retrieve_model_name_map
-from ..const import __supported_languages, __label_split_names, __supported_passage_sizes
-from ..utils import compute_arg_collection_name, get_index_path, load_data, chunk_data, init_labeler, filter_metrics
-from ..model_data import ModelTestData
 
 logger = logging.getLogger('mulabel.fa')
 
@@ -67,6 +67,7 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
     )
 
 
+# noinspection DuplicatedCode
 def fa_init_embed(args) -> int:
     """
     ./newsmon fa init_embed -c newsmon -l sl --public --ptm_models bge_m3,jinav3,gte,n_bge_m3
@@ -232,6 +233,46 @@ def fa_mine_hard_neg(args) -> int:
     return 0
 
 
+__best_hyper_params = {
+    'newsmon': {
+        'raexmc': {
+            'bge_m3': {
+                'top_k': 50, 'lambda': 1.0, 'temperature': 0.04
+            },
+            'n_bge_m3': {
+                'top_k': 50, 'lambda': 1.0, 'temperature': 0.04
+            }
+        },
+        'raexmcsim': {
+            'bge_m3': {
+                'top_k': 16, 'lambda': 0.986, 'temperature': 0.067
+            },
+            'n_bge_m3': {
+                'top_k': 12, 'lambda': 0.807, 'temperature': 0.066
+            }
+        },
+    },
+    'eurlex': {
+        'raexmc': {
+            'bge_m3': {
+                'top_k': 50, 'lambda': 1.0, 'temperature': 0.04
+            },
+            'e_bge_m3': {
+                'top_k': 50, 'lambda': 1.0, 'temperature': 0.04
+            }
+        },
+        'raexmcsim': {
+            'bge_m3': {
+                'top_k': 10, 'lambda': 0.999, 'temperature': 0.010
+            },
+            'e_bge_m3': {
+                'top_k': 52, 'lambda': 0.999, 'temperature': 0.017
+            }
+        }
+    }
+}
+
+
 # noinspection DuplicatedCode
 def fa_test_rae(args) -> int:
     """
@@ -241,7 +282,8 @@ def fa_test_rae(args) -> int:
     models = EmbeddingModelWrapperFactory.init_models(args)
     labeler = init_labeler(args)
 
-    model_data = init_model_data(args, labeler, faiss.METRIC_L2, 'raexmc', models)
+    method = 'raexmc'
+    model_data = init_model_data(args, labeler, faiss.METRIC_L2, method, models)
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     # subject to grid search
@@ -251,8 +293,14 @@ def fa_test_rae(args) -> int:
     topk = 50  # Number of nearest neighbors to retrieve
     threshold = 0.5  # Probability to classify as a positive
     temper = 0.04
+    corpus = args.collection_conf
     for m_name, m_data in model_data.items():
-        m_data.set_hyper(temper, topk, lamb)
+        if (corpus in __best_hyper_params and method in __best_hyper_params[corpus]
+                and m_name in __best_hyper_params[corpus][method]):
+            params = __best_hyper_params[corpus][method][m_name]
+            m_data.set_hyper(params['temperature'], params['top_k'], params['lambda'])
+        else:
+            m_data.set_hyper(temper, topk, lamb)
 
     t1 = time.time()
     for model_name, m_data in model_data.items():
@@ -268,67 +316,6 @@ def fa_test_rae(args) -> int:
             sim = torch.from_numpy(sim).to(device)
             # Convert similarities to probability distribution using softmax
             sim = F.softmax(-torch.sqrt(sim) / m_data.temperature, dim=-1)
-            # Initialize qKT tensor for the batch
-            qkt = torch.zeros((end_idx - start_idx, m_data.k_dim), dtype=torch.float32).to(device)
-            # Assign values to specific indices for each item in the batch
-            for i in range(end_idx - start_idx):
-                qkt[i, indices[i]] = sim[i]
-
-            # Compute probabilities using matrix multiplication
-            probabilities = torch.matmul(qkt, m_data.values)
-            yl_prob = (probabilities > threshold).cpu().numpy()
-            m_data.y_pred.extend(yl_prob)
-            m_data.y_true.extend(yl_true)
-
-    logger.info(f'Measured performance in {(time.time() - t1):8.2f} seconds')
-    logger.info(f'Computing metrics')
-    for model_name, m_data in model_data.items():
-        logger.info(f'Processing RAE-XMC metrics for {model_name}')
-        y_true_m, y_pred_m = filter_metrics(args, labeler, m_data.y_true, m_data.y_pred)
-        m_data.metrics(y_true_m, y_pred_m, 'test/', threshold)
-        meta = {'num_samples': np.shape(y_true_m)[0], 'num_labels': np.shape(y_true_m)[1]}
-        m_data.metrics.dump(args.data_result_dir, meta, None, 100)
-    logger.info(f'Computation done in {(time.time() - t1):8.2f} seconds')
-    return 0
-
-
-# noinspection DuplicatedCode
-def fa_test_rae_sim(args) -> int:
-    """
-    ./newsmon fa test_rae -c newsmon -l sl --public --ptm_models bge_m3,jinav3,gte
-    """
-    compute_arg_collection_name(args)
-    models = EmbeddingModelWrapperFactory.init_models(args)
-    labeler = init_labeler(args)
-
-    model_data = init_model_data(args, labeler, faiss.METRIC_INNER_PRODUCT, 'raexmcsim', models)
-
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    # subject to grid search
-    # lamb = 0.5
-    batch_size = 384
-    lamb = 1
-    topk = 50  # Number of nearest neighbors to retrieve
-    threshold = 0.5  # Probability to classify as a positive
-    temper = 0.04
-    for m_name, m_data in model_data.items():
-        m_data.set_hyper(temper, topk, lamb)
-
-    t1 = time.time()
-    for model_name, m_data in model_data.items():
-        logger.info(f'Processing RAE-XMC eval for {model_name}')
-        for start_idx in tqdm(range(0, m_data.test_data['count'], batch_size),
-                              desc='Processing RAE-XMC similarity (dot-product) eval.'):
-            end_idx = min(start_idx + batch_size, m_data.test_data['count'])
-            query_vectors = m_data.test_data['x'][start_idx:end_idx]
-            yl_true = m_data.test_data['y_true'][start_idx:end_idx]
-
-            # Search for the topk nearest neighbors for all query vectors in the batch
-            # noinspection PyArgumentList
-            sim, indices = m_data.index.search(query_vectors, m_data.top_k)  # Batched search
-            sim = torch.from_numpy(sim).to(device)
-            # Convert similarities to probability distribution using softmax
-            sim = F.softmax(sim / m_data.temperature, dim=-1)
             # Initialize qKT tensor for the batch
             qkt = torch.zeros((end_idx - start_idx, m_data.k_dim), dtype=torch.float32).to(device)
             # Assign values to specific indices for each item in the batch
@@ -450,4 +437,170 @@ def fa_test_mlknn(args) -> int:
         m_data.metrics.dump(args.data_result_dir, meta, None, 100)
 
     logger.info(f'Computation done in {(time.time() - t0):8.2f} seconds')
+    return 0
+
+
+# noinspection DuplicatedCode
+def fa_test_rae_sim(args) -> int:
+    """
+    ./newsmon fa test_rae -c newsmon -l sl --public --ptm_models bge_m3,jinav3,gte
+    """
+    compute_arg_collection_name(args)
+    models = EmbeddingModelWrapperFactory.init_models(args)
+    labeler = init_labeler(args)
+
+    model_data = init_model_data(args, labeler, faiss.METRIC_INNER_PRODUCT, 'raexmcsim', models)
+
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    # subject to grid search
+    # lamb = 0.5
+    batch_size = 384
+    lamb = 0.902
+    topk = 12  # Number of nearest neighbors to retrieve
+    threshold = 0.5  # Probability to classify as a positive
+    temper = 0.044
+    for m_name, m_data in model_data.items():
+        m_data.set_hyper(temper, topk, lamb)
+
+    t1 = time.time()
+    for model_name, m_data in model_data.items():
+        logger.info(f'Processing RAE-XMC eval for {model_name}')
+        for start_idx in tqdm(range(0, m_data.test_data['count'], batch_size),
+                              desc='Processing RAE-XMC similarity (dot-product) eval.'):
+            end_idx = min(start_idx + batch_size, m_data.test_data['count'])
+            query_vectors = m_data.test_data['x'][start_idx:end_idx]
+            yl_true = m_data.test_data['y_true'][start_idx:end_idx]
+
+            # Search for the topk nearest neighbors for all query vectors in the batch
+            # noinspection PyArgumentList
+            sim, indices = m_data.index.search(query_vectors, m_data.top_k)  # Batched search
+            sim = torch.from_numpy(sim).to(device)
+            # Convert similarities to probability distribution using softmax
+            sim = F.softmax(sim / m_data.temperature, dim=-1)
+            # Initialize qKT tensor for the batch
+            qkt = torch.zeros((end_idx - start_idx, m_data.k_dim), dtype=torch.float32).to(device)
+            # Assign values to specific indices for each item in the batch
+            for i in range(end_idx - start_idx):
+                qkt[i, indices[i]] = sim[i]
+
+            # Compute probabilities using matrix multiplication
+            probabilities = torch.matmul(qkt, m_data.values)
+            yl_prob = (probabilities > threshold).cpu().numpy()
+            m_data.y_pred.extend(yl_prob)
+            m_data.y_true.extend(yl_true)
+
+    logger.info(f'Measured performance in {(time.time() - t1):8.2f} seconds')
+    logger.info(f'Computing metrics')
+    for model_name, m_data in model_data.items():
+        logger.info(f'Processing RAE-XMC metrics for {model_name}')
+        y_true_m, y_pred_m = filter_metrics(args, labeler, m_data.y_true, m_data.y_pred)
+        m_data.metrics(y_true_m, y_pred_m, 'test/', threshold)
+        meta = {'num_samples': np.shape(y_true_m)[0], 'num_labels': np.shape(y_true_m)[1]}
+        m_data.metrics.dump(args.data_result_dir, meta, None, 100)
+    logger.info(f'Computation done in {(time.time() - t1):8.2f} seconds')
+    return 0
+
+
+class RaeObjective(ModelTestObjective):
+
+    def _get_trial_params(self):
+        return ['temperature', 'topk', 'lambda']
+
+    def __init__(self, args, m_data: ModelTestData, labeler: Labeler, dist_metric: bool = False, batch_size: int = 384):
+        super().__init__(args, m_data)
+        self.labeler = labeler
+        self.batch_size = batch_size
+        self.dist_metric = dist_metric
+
+    def __call__(self, trial):
+        threshold = 0.5
+        temper = trial.suggest_float('temperature', 0.01, 0.1)
+        top_k = trial.suggest_int('top_k', 10, 100)
+        lamb = trial.suggest_float('lambda', 0.1, 1.0)
+
+        self.m_data.set_hyper(temper, top_k, lamb)
+        t0 = time.time()
+        data_len = self.m_data.test_data['count']
+        for start_idx in tqdm(range(0, data_len, self.batch_size)):
+            end_idx = min(start_idx + self.batch_size, data_len)
+            query_vectors = self.m_data.test_data['x'][start_idx:end_idx]
+            yl_true = self.m_data.test_data['y_true'][start_idx:end_idx]
+
+            # Search for the topk nearest neighbors for all query vectors in the batch
+            # noinspection PyArgumentList
+            sim, indices = self.m_data.index.search(query_vectors, self.m_data.top_k)  # Batched search
+            sim = torch.from_numpy(sim).to(self.device)
+            # Convert similarities to probability distribution using softmax
+            if self.dist_metric:
+                sim = F.softmax(-torch.sqrt(sim) / self.m_data.temperature, dim=-1)
+            else:
+                sim = F.softmax(sim / self.m_data.temperature, dim=-1)
+            # Initialize qKT tensor for the batch
+            qkt = torch.zeros((end_idx - start_idx, self.m_data.k_dim), dtype=torch.float32).to(self.device)
+            # Assign values to specific indices for each item in the batch
+            for i in range(end_idx - start_idx):
+                qkt[i, indices[i]] = sim[i]
+
+            # Compute probabilities using matrix multiplication
+            probabilities = torch.matmul(qkt, self.m_data.values)
+            yl_prob = (probabilities > threshold).cpu().numpy()
+            self.m_data.y_pred.extend(yl_prob)
+            self.m_data.y_true.extend(yl_true)
+
+        t1 = (time.time() - t0)
+        y_true_m, y_pred_m = filter_metrics(self.args, self.labeler, self.m_data.y_true, self.m_data.y_pred)
+        result = accuracy_score(y_true_m, y_pred_m) * 100
+        self._log_to_csv(trial.number, t1, result, trial.params)
+        self.m_data.y_true = []
+        self.m_data.y_pred = []
+        return result
+
+
+# noinspection DuplicatedCode
+def fa_optuna_rae_sim(args) -> int:
+    """
+    ./newsmon fa optuna_rae_sim -c newsmon -l sl --public --ptm_models bge_m3,jinav3,gte
+    """
+    compute_arg_collection_name(args)
+    models = EmbeddingModelWrapperFactory.init_models(args)
+    labeler = init_labeler(args)
+    model_data = init_model_data(args, labeler, faiss.METRIC_INNER_PRODUCT, 'raexmcsim', models)
+
+    for m_name, m_data in model_data.items():
+        logger.info(f'Processing RAE-XMC similarity based eval for {m_data.name}')
+        objective = RaeObjective(args, m_data, labeler)
+        study = optuna.create_study(direction="maximize")  # Assuming higher metric value is better
+        study.optimize(objective, n_trials=1000)  # Adjust n_trials as needed
+
+        print("Best trial:")
+        print(f"  Value: {study.best_trial.value}")
+        print("  Params: ")
+        for key, value in study.best_trial.params.items():
+            print(f"    {key}: {value}")
+
+    return 0
+
+
+# noinspection DuplicatedCode
+def fa_optuna_rae(args) -> int:
+    """
+    ./newsmon fa optuna_rae_sim -c newsmon -l sl --public --ptm_models bge_m3,jinav3,gte
+    """
+    compute_arg_collection_name(args)
+    models = EmbeddingModelWrapperFactory.init_models(args)
+    labeler = init_labeler(args)
+    model_data = init_model_data(args, labeler, faiss.METRIC_L2, 'raexmc', models)
+
+    for m_name, m_data in model_data.items():
+        logger.info(f'Processing RAE-XMC similarity based eval for {m_data.name}')
+        objective = RaeObjective(args, m_data, labeler, True)
+        study = optuna.create_study(direction="maximize")  # Assuming higher metric value is better
+        study.optimize(objective, n_trials=1000)  # Adjust n_trials as needed
+
+        print("Best trial:")
+        print(f"  Value: {study.best_trial.value}")
+        print("  Params: ")
+        for key, value in study.best_trial.params.items():
+            print(f"    {key}: {value}")
+
     return 0
