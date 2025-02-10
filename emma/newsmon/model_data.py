@@ -116,7 +116,7 @@ class ModelTestObjective:
         df = pd.DataFrame(columns=columns)
         df.to_csv(self.csv_file_name, index=False)
 
-    def _log_to_csv(self, trial_number, t, acc, params):
+    def log_to_csv(self, trial_number, t, acc, params):
         row = {'Trial': trial_number, 'Time': t, 'Value': acc}
         row.update({f'param_{key}': val for key, val in params.items()})
         df = pd.DataFrame([row])

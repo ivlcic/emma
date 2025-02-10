@@ -298,6 +298,7 @@ def fa_test_rae(args) -> int:
         if (corpus in __best_hyper_params and method in __best_hyper_params[corpus]
                 and m_name in __best_hyper_params[corpus][method]):
             params = __best_hyper_params[corpus][method][m_name]
+            logger.info(f'Processing RAE distance metrics for {m_name} with optimal hyper-parameters {params}')
             m_data.set_hyper(params['temperature'], params['top_k'], params['lambda'])
         else:
             m_data.set_hyper(temper, topk, lamb)
@@ -443,24 +444,32 @@ def fa_test_mlknn(args) -> int:
 # noinspection DuplicatedCode
 def fa_test_rae_sim(args) -> int:
     """
-    ./newsmon fa test_rae -c newsmon -l sl --public --ptm_models bge_m3,jinav3,gte
+    ./newsmon fa test_rae_sim -c newsmon -l sl --public --ptm_models bge_m3,jinav3,gte
     """
     compute_arg_collection_name(args)
     models = EmbeddingModelWrapperFactory.init_models(args)
     labeler = init_labeler(args)
 
-    model_data = init_model_data(args, labeler, faiss.METRIC_INNER_PRODUCT, 'raexmcsim', models)
+    method = 'raexmc'
+    model_data = init_model_data(args, labeler, faiss.METRIC_INNER_PRODUCT, method, models)
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     # subject to grid search
     # lamb = 0.5
     batch_size = 384
-    lamb = 0.902
-    topk = 12  # Number of nearest neighbors to retrieve
+    lamb = 1
+    topk = 50  # Number of nearest neighbors to retrieve
     threshold = 0.5  # Probability to classify as a positive
-    temper = 0.044
+    temper = 0.04
+    corpus = args.collection_conf
     for m_name, m_data in model_data.items():
-        m_data.set_hyper(temper, topk, lamb)
+        if (corpus in __best_hyper_params and method in __best_hyper_params[corpus]
+                and m_name in __best_hyper_params[corpus][method]):
+            params = __best_hyper_params[corpus][method][m_name]
+            logger.info(f'Processing RAE similarity metrics for {m_name} with optimal hyper-parameters {params}')
+            m_data.set_hyper(params['temperature'], params['top_k'], params['lambda'])
+        else:
+            m_data.set_hyper(temper, topk, lamb)
 
     t1 = time.time()
     for model_name, m_data in model_data.items():
@@ -506,11 +515,13 @@ class RaeObjective(ModelTestObjective):
     def _get_trial_params(self):
         return ['temperature', 'topk', 'lambda']
 
-    def __init__(self, args, m_data: ModelTestData, labeler: Labeler, dist_metric: bool = False, batch_size: int = 384):
+    def __init__(self, args, m_data: ModelTestData, labeler: Labeler, dist_metric: bool = False,
+                 on_test_set: bool = False, batch_size: int = 384):
         super().__init__(args, m_data)
         self.labeler = labeler
         self.batch_size = batch_size
         self.dist_metric = dist_metric
+        self.on_test_set = on_test_set
 
     def __call__(self, trial):
         threshold = 0.5
@@ -520,11 +531,14 @@ class RaeObjective(ModelTestObjective):
 
         self.m_data.set_hyper(temper, top_k, lamb)
         t0 = time.time()
-        data_len = self.m_data.test_data['count']
+        data_set = self.m_data.dev_data
+        if self.on_test_set:
+            data_set = self.m_data.test_data
+        data_len = data_set['count']
         for start_idx in tqdm(range(0, data_len, self.batch_size)):
             end_idx = min(start_idx + self.batch_size, data_len)
-            query_vectors = self.m_data.test_data['x'][start_idx:end_idx]
-            yl_true = self.m_data.test_data['y_true'][start_idx:end_idx]
+            query_vectors = data_set['x'][start_idx:end_idx]
+            yl_true = data_set['y_true'][start_idx:end_idx]
 
             # Search for the topk nearest neighbors for all query vectors in the batch
             # noinspection PyArgumentList
@@ -550,7 +564,7 @@ class RaeObjective(ModelTestObjective):
         t1 = (time.time() - t0)
         y_true_m, y_pred_m = filter_metrics(self.args, self.labeler, self.m_data.y_true, self.m_data.y_pred)
         result = accuracy_score(y_true_m, y_pred_m) * 100
-        self._log_to_csv(trial.number, t1, result, trial.params)
+        self.log_to_csv(trial.number, t1, result, trial.params)
         self.m_data.y_true = []
         self.m_data.y_pred = []
         return result
@@ -571,20 +585,14 @@ def fa_optuna_rae_sim(args) -> int:
         objective = RaeObjective(args, m_data, labeler)
         study = optuna.create_study(direction="maximize")  # Assuming higher metric value is better
         study.optimize(objective, n_trials=1000)  # Adjust n_trials as needed
-
-        print("Best trial:")
-        print(f"  Value: {study.best_trial.value}")
-        print("  Params: ")
-        for key, value in study.best_trial.params.items():
-            print(f"    {key}: {value}")
-
+        objective.log_to_csv(study.best_trial.number, 0, study.best_trial, study.best_trial.params)
     return 0
 
 
 # noinspection DuplicatedCode
 def fa_optuna_rae(args) -> int:
     """
-    ./newsmon fa optuna_rae_sim -c newsmon -l sl --public --ptm_models bge_m3,jinav3,gte
+    ./newsmon fa optuna_rae -c newsmon -l sl --public --ptm_models bge_m3
     """
     compute_arg_collection_name(args)
     models = EmbeddingModelWrapperFactory.init_models(args)
@@ -596,11 +604,5 @@ def fa_optuna_rae(args) -> int:
         objective = RaeObjective(args, m_data, labeler, True)
         study = optuna.create_study(direction="maximize")  # Assuming higher metric value is better
         study.optimize(objective, n_trials=1000)  # Adjust n_trials as needed
-
-        print("Best trial:")
-        print(f"  Value: {study.best_trial.value}")
-        print("  Params: ")
-        for key, value in study.best_trial.params.items():
-            print(f"    {key}: {value}")
-
+        objective.log_to_csv(study.best_trial.number, 0, study.best_trial, study.best_trial.params)
     return 0
