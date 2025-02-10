@@ -517,7 +517,7 @@ class RaeObjective(ModelTestObjective):
 
     def __init__(self, args, m_data: ModelTestData, labeler: Labeler, dist_metric: bool = False,
                  on_test_set: bool = False, batch_size: int = 384):
-        super().__init__(args, m_data)
+        super().__init__(args, m_data, '_test' if on_test_set else '_dev')
         self.labeler = labeler
         self.batch_size = batch_size
         self.dist_metric = dist_metric
