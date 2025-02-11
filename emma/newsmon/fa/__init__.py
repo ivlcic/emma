@@ -551,7 +551,7 @@ class RaeObjective(ModelTestObjective):
             # Initialize qKT tensor for the batch
             qkt = torch.zeros((end_idx - start_idx, self.m_data.k_dim), dtype=torch.float32).to(self.device)
             # Assign values to specific indices for each item in the batch
-            for i in range(end_idx - start_idx):
+            for i in range(end_idx - start_idx):  # 0 to batch size
                 qkt[i, indices[i]] = sim[i]
 
             # Compute probabilities using matrix multiplication
