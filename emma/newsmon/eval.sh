@@ -80,3 +80,18 @@
 ./newsmon fa test_rae_sim -c eurlex --ptm_models bge_m3,jina3,gte,e_bge_m3
 ./newsmon fa test_rae_sim -c eurlex --ptm_models bge_m3,jina3,gte,e_bge_m3 --test_l_class Rare
 ./newsmon fa test_rae_sim -c eurlex --ptm_models bge_m3,jina3,gte,e_bge_m3 --test_l_class Frequent
+
+# after hp search
+./newsmon fa test_rae -c newsmon -l sl --public --ptm_models bge_m3,n_bge_m3
+./newsmon fa test_rae -c newsmon -l sl --public --ptm_models bge_m3,n_bge_m3 --test_l_class Rare
+./newsmon fa test_rae -c newsmon -l sl --public --ptm_models bge_m3,n_bge_m3 --test_l_class Frequent
+./newsmon fa test_rae -c eurlex --ptm_models bge_m3,e_bge_m3
+./newsmon fa test_rae -c eurlex --ptm_models bge_m3,e_bge_m3 --test_l_class Rare
+./newsmon fa test_rae -c eurlex --ptm_models bge_m3,e_bge_m3 --test_l_class Frequent
+
+./newsmon fa test_rae_sim -c newsmon -l sl --public --ptm_models bge_m3,n_bge_m3
+./newsmon fa test_rae_sim -c newsmon -l sl --public --ptm_models bge_m3,n_bge_m3 --test_l_class Rare
+./newsmon fa test_rae_sim -c newsmon -l sl --public --ptm_models bge_m3,n_bge_m3 --test_l_class Frequent
+./newsmon fa test_rae_sim -c eurlex --ptm_models bge_m3,e_bge_m3
+./newsmon fa test_rae_sim -c eurlex --ptm_models bge_m3,e_bge_m3 --test_l_class Rare
+./newsmon fa test_rae_sim -c eurlex --ptm_models bge_m3,e_bge_m3 --test_l_class Frequent

@@ -257,10 +257,10 @@ __best_hyper_params = {
     'eurlex': {
         'raexmc': {
             'bge_m3': {
-                'top_k': 50, 'lambda': 1.0, 'temperature': 0.04
+                'top_k': 10, 'lambda': 0.998, 'temperature': 0.031
             },
             'e_bge_m3': {
-                'top_k': 50, 'lambda': 1.0, 'temperature': 0.04
+                'top_k': 69, 'lambda': 0.999, 'temperature': 0.031
             }
         },
         'raexmcsim': {
@@ -518,13 +518,11 @@ class RaeObjective(ModelTestObjective):
     def _get_trial_params(self):
         return ['temperature', 'topk', 'lambda']
 
-    def __init__(self, args, m_data: ModelTestData, labeler: Labeler, dist_metric: bool = False,
-                 on_test_set: bool = False, batch_size: int = 384):
-        super().__init__(args, m_data, '_test' if on_test_set else '_dev')
+    def __init__(self, args, m_data: ModelTestData, labeler: Labeler, dist_metric: bool = False, batch_size: int = 384):
+        super().__init__(args, m_data)
         self.labeler = labeler
         self.batch_size = batch_size
         self.dist_metric = dist_metric
-        self.on_test_set = on_test_set
 
     def __call__(self, trial):
         threshold = 0.5
@@ -535,8 +533,6 @@ class RaeObjective(ModelTestObjective):
         self.m_data.set_hyper(temper, top_k, lamb)
         t0 = time.time()
         data_set = self.m_data.dev_data
-        if self.on_test_set:
-            data_set = self.m_data.test_data
         data_len = data_set['count']
         for start_idx in tqdm(range(0, data_len, self.batch_size)):
             end_idx = min(start_idx + self.batch_size, data_len)
@@ -613,19 +609,20 @@ def fa_optuna_rae(args) -> int:
 
 def fa_train_rae_sim_ext(args) -> int:
     """
-    ./newsmon fa train_rae_sim_ext -c newsmon -l sl --public --ptm_models bge_m3,jinav3,gte
+    ./newsmon fa train_rae_sim_ext -c newsmon -l sl --public --ptm_models bge_m3
     """
     compute_arg_collection_name(args)
     models = EmbeddingModelWrapperFactory.init_models(args)
     labeler = init_labeler(args)
-    method = 'raexmcsim'
+    method = 'raexmcsimext'
     model_data = init_model_data(args, labeler, faiss.METRIC_INNER_PRODUCT, method, models)
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     batch_size = 384
-    num_epochs = 10
+    num_epochs = 5
+    threshold = 0.5
 
-    lamb = 1
+    lamb = 1  # don't change this since is no longer a hype-parameter
     topk = 50  # Number of nearest neighbors to retrieve
     temper = 0.04
 
@@ -635,37 +632,38 @@ def fa_train_rae_sim_ext(args) -> int:
                 and m_name in __best_hyper_params[corpus][method]):
             params = __best_hyper_params[corpus][method][m_name]
             logger.info(f'RAE-XMC similarity model {m_name} with optimal hyper-parameters {params} loaded.')
-            m_data.set_hyper(params['temperature'], params['top_k'], 1)  # we will learn lambda matrix
+            m_data.set_hyper(params['temperature'], params['top_k'], lamb)  # we will learn lambda matrix
         else:
             logger.info(f'RAE-XMC similarity model {m_name} with default hyper-parameters loaded.')
-            m_data.set_hyper(temper, topk, 1)
+            m_data.set_hyper(temper, topk, lamb)
 
     for m_name, m_data in model_data.items():
         logger.info(f'Processing RAE-XMC similarity based train for {m_data.name}')
-        data_set = m_data.dev_data
-        data_len = data_set['count']
-
+        dev_data_set = m_data.dev_data
+        dev_data_len = dev_data_set['count']
+        t1 = time.time()
         model = RaeExt(
             values_matrix=m_data.values,
             index=m_data.index,
             top_k=m_data.top_k,
-            k_dim=np.shape(m_data.train_data['y_true'])[1],
+            k_dim=m_data.k_dim,  # num samples
             temperature=m_data.temperature,
             dist_metric=False,
             device=device
         ).to(device)
-        criterion = nn.CrossEntropyLoss()
+        criterion = nn.BCELoss()
         optimizer = optim.Adam(model.parameters(), lr=0.001)
 
         for epoch in range(num_epochs):
             model.train()
             running_loss = 0.0
 
-            for start_idx in tqdm(range(0, data_len, batch_size)):
-                end_idx = min(start_idx + batch_size, data_len)
-                query_vectors = data_set['x'][start_idx:end_idx]
-                yl_true = data_set['y_true'][start_idx:end_idx]
-                query_vectors, yl_true = query_vectors.to(device), yl_true.to(device)
+            for start_idx in tqdm(range(0, dev_data_len, batch_size)):
+                end_idx = min(start_idx + batch_size, dev_data_len)
+                query_vectors = dev_data_set['x'][start_idx:end_idx]
+                yl_true = dev_data_set['y_true'][start_idx:end_idx]
+                yl_true = torch.Tensor(yl_true).to(device)
+                query_vectors = torch.Tensor(query_vectors).to(device)
 
                 # Zero the parameter gradients
                 optimizer.zero_grad()
@@ -674,13 +672,39 @@ def fa_train_rae_sim_ext(args) -> int:
                 outputs = model(query_vectors)
 
                 # Compute loss
-                loss = criterion(outputs, yl_true)
+                # loss = criterion(outputs, yl_true)
+                loss = F.binary_cross_entropy(torch.sigmoid(outputs), yl_true)
 
                 # Backward pass and optimization step
                 loss.backward()
                 optimizer.step()
 
                 running_loss += loss.item()
+            logger.info(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {running_loss / (dev_data_len / batch_size):.4f}')
 
-            logger.info(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {running_loss / (data_len / batch_size):.4f}')
+        test_data_set = m_data.test_data
+        test_data_len = test_data_set['count']
+
+        # Evaluation loop
+        model.eval()
+        with torch.no_grad():
+            for start_idx in tqdm(range(0, test_data_len, batch_size)):
+                end_idx = min(start_idx + batch_size, test_data_len)
+                query_vectors = test_data_set['x'][start_idx:end_idx]
+                yl_true = test_data_set['y_true'][start_idx:end_idx]
+                query_vectors = torch.Tensor(query_vectors).to(device)
+                probabilities = model(query_vectors)
+                yl_prob = (probabilities > threshold).cpu().numpy()
+                m_data.y_pred.extend(yl_prob)
+                m_data.y_true.extend(yl_true)
+
+        logger.info(f'Measured train and eval time in {(time.time() - t1):8.2f} seconds')
+        logger.info(f'Computing metrics')
+        for model_name, m_data in model_data.items():
+            logger.info(f'Processing RAE-XMC metrics for {model_name}')
+            y_true_m, y_pred_m = filter_metrics(args, labeler, m_data.y_true, m_data.y_pred)
+            m_data.metrics(y_true_m, y_pred_m, 'test/', threshold)
+            meta = {'num_samples': np.shape(y_true_m)[0], 'num_labels': np.shape(y_true_m)[1]}
+            m_data.metrics.dump(args.data_result_dir, meta, None, 100)
+
     return 0

@@ -14,13 +14,13 @@ class RaeExt(nn.Module):
         self.values_matrix = values_matrix.to(device)
         self.index = index
         self.top_k = top_k
-        self.k_dim = k_dim
+        self.k_dim = k_dim  # num samples
         self.temperature = temperature
         self.dist_metric = dist_metric
         self.device = device
 
 
-    def forward(self, query_vectors):
+    def forward(self, query_vectors: torch.Tensor):
         """
         Forward pass for the module.
 

@@ -107,12 +107,12 @@ class ModelTestObjective:
     def _get_trial_params(self):
         return []
 
-    def __init__(self, args, m_data: ModelTestData, suffix: Union[str, None] = None):
+    def __init__(self, args, m_data: ModelTestData):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.m_data = m_data
         self.args = args
 
-        self.csv_file_name = os.path.join(args.data_result_dir, f'{m_data.metrics.model_name}_trials{suffix}.csv')
+        self.csv_file_name = os.path.join(args.data_result_dir, f'{m_data.metrics.model_name}_trials.csv')
         columns = ['Trial', 'Time', 'Value']
         columns += [f'param_{key}' for key in self._get_trial_params()]
         df = pd.DataFrame(columns=columns)
