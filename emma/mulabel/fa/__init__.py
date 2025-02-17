@@ -261,7 +261,7 @@ def fa_init_pseudo_labels(args) -> int:
 
 def fa_lrp_extract(args) -> int:
     """
-    ./mulabel fa lrp_extract -c mulabel -l sl --public
+    ./mulabel fa lrp_extract -c mulabel -l sl --public --lrp_size 1
     """
     os.environ['HF_HOME'] = args.tmp_dir  # local tmp dir
     compute_arg_collection_name(args)

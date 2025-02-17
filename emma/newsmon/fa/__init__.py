@@ -72,8 +72,8 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
 # noinspection DuplicatedCode
 def fa_init_embed(args) -> int:
     """
-    ./newsmon fa init_embed -c newsmon -l sl --public --ptm_models bge_m3,jinav3,gte,n_bge_m3
-    ./newsmon fa init_embed -c eurlex --ptm_models bge_m3,jinav3,gte,e_bge_m3
+    ./newsmon fa init_embed -c newsmon -l sl --public --ptm_models bge_m3,jina3,gte,n_bge_m3
+    ./newsmon fa init_embed -c eurlex --ptm_models bge_m3,jina3,gte,e_bge_m3
     """
     compute_arg_collection_name(args)
     models = EmbeddingModelWrapperFactory.init_models(args)
