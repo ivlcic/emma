@@ -5,6 +5,7 @@ import time
 import random
 import numpy as np
 import pandas as pd
+import pandas.api.types as ptypes
 
 from typing import Dict, Any, List
 from argparse import ArgumentParser
@@ -300,4 +301,105 @@ def prep_export_label_space(args) -> int:
     df.to_csv(os.path.join(args.data_result_dir, file_path), sep='\t', index=False, encoding='utf-8')
 
     logger.info(f'Computation done in {(time.time() - t0):8.2f} seconds')
+    return 0
+
+
+def prep_analyze(arg) -> int:
+    """
+    Analyzes map files
+    ./mulabel prep analyze --postfix 2023_01,2023_02
+    """
+    logger.debug("Analyzes map newsmon article files.")
+    os.environ['HF_HOME'] = arg.data_out_dir  # local tmp dir
+
+    if ',' in arg.postfix:
+        arg.postfix = arg.postfix.split(',')
+    else:
+        arg.postfix = [arg.postfix]
+
+    l_col = 'tags'
+    dfs = []
+    for postfix in arg.postfix:
+        article_map_file_name = os.path.join(arg.data_in_dir, 'map', f'map_articles_{postfix}.csv')
+        logger.info(f'Reading file %s', article_map_file_name)
+        tmp_df = pd.read_csv(article_map_file_name, encoding='utf-8')
+        if ptypes.is_string_dtype(tmp_df[l_col]):
+            tmp_df[l_col] = tmp_df[l_col].apply(ast.literal_eval)
+        elif ptypes.is_integer_dtype(tmp_df[l_col]):
+            tmp_df[l_col] = tmp_df[l_col].apply(lambda x: [x])
+        dfs.append(tmp_df)
+
+
+    df = pd.concat(dfs, ignore_index=True)
+    print(df.head())
+    all_labels = set()
+    lang_tag_counts = {}
+    for lang in df['lang'].unique():
+        lang_tags = [tag for tags_list in df[df['lang'] == lang]['tags'] for tag in tags_list]
+        all_labels.update(lang_tags)
+        lang_tag_counts[lang] = len(set(lang_tags))
+    total = 0
+    for k, v in lang_tag_counts.items():
+        total += v
+    lang_tag_counts['all'] = len(all_labels)
+    lang_tag_counts['total'] = total
+    print(lang_tag_counts)
+
+    sample_counts = df['lang'].value_counts().to_dict()
+    total = 0
+    for k, v in sample_counts.items():
+        total += v
+    sample_counts['total'] = total
+    print(sample_counts)
+
+    all_tokens = df['sp_tokens']
+
+    # Define bins (0 to 8192 with increments of 512)
+    bins = list(range(1, 8194, 512))  # Includes the upper bound (8192)
+
+    # Calculate histogram using numpy
+    hist, bin_edges = np.histogram(all_tokens, bins=bins)
+
+    # Create a DataFrame for better visualization of bin ranges and frequencies
+    histogram_df = pd.DataFrame({
+        'Range': [f"{bin_edges[i]}-{bin_edges[i + 1] - 1}" for i in range(len(bin_edges) - 1)],
+        'Frequency': hist
+    })
+
+    # Calculate the total number of samples
+    total_samples = histogram_df['Frequency'].sum()
+    print(total_samples)
+    # Calculate the percentage for each bin
+    histogram_df['Percentage'] = (histogram_df['Frequency'] / total_samples) * 100
+
+    print(histogram_df)
+
+    max_limit = 4097
+    bin_step = 512
+    bins = list(range(1, max_limit + bin_step, bin_step)) + [np.inf]
+
+    # Extract token counts
+    token_counts = df['sp_tokens']
+    # Calculate histogram
+    hist, bin_edges = np.histogram(token_counts, bins=bins)
+
+    # Create readable bin labels
+    bin_labels = []
+    for i in range(len(bin_edges) - 1):
+        lower = bin_edges[i]
+        upper = bin_edges[i + 1]
+        if upper == np.inf:
+            bin_labels.append(f"{lower}-inf")
+        else:
+            bin_labels.append(f"{lower}-{upper - 1}")
+
+    # Create DataFrame with percentages
+    total_samples = len(token_counts)
+    histogram_df = pd.DataFrame({
+        'Token Range': bin_labels,
+        'Count': hist,
+        'Percentage': np.round(hist / total_samples * 100, 2)
+    })
+    print(histogram_df)
+
     return 0

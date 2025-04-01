@@ -13,6 +13,7 @@ from torch import Tensor
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, PreTrainedModel, PreTrainedTokenizer, \
     TrainingArguments, Trainer, EvalPrediction
 from lightning import seed_everything
+from transformers.trainer_utils import PredictionOutput
 
 from ...core.args import CommonArguments
 from ...core.models import valid_model_names, model_name_map
@@ -366,7 +367,8 @@ def te_test(args) -> int:
         preprocess_logits_for_metrics=preprocess_logits_for_metrics
     )
     print(f'{len(datasets["test"])}')
-    trainer.predict(datasets['test'])
+    pred_output: PredictionOutput = trainer.predict(datasets['test'])
+    print(pred_output.metrics)
     # m = metrics(np.array(y_true, dtype=float), np.array(y_pred, dtype=float), 'test/')
     metrics.dump(args.data_out_dir, None, None, 100)
     return 0
