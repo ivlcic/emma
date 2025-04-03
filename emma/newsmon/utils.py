@@ -41,7 +41,7 @@ def compute_arg_collection_name(arg):
 
 
 # noinspection DuplicatedCode
-def init_labeler(args) -> Labeler:
+def init_labeler(args) -> Tuple[Labeler, pd.DataFrame]:
     labels_file_name = os.path.join(args.data_in_dir, f'{args.collection}_labels.csv')
     if not os.path.exists(labels_file_name) and 'lrp' in args.collection:
         tmp = re.sub(r'lrp(-\d+)*_', '', args.collection)
@@ -49,13 +49,14 @@ def init_labeler(args) -> Labeler:
         if not os.path.exists(labels_file_name) and 'lrp' in args.collection:
             raise ValueError(f'Missing labels file [{labels_file_name}]')
 
+    labels_df = pd.read_csv(labels_file_name)
     with open(labels_file_name, 'r') as l_file:
         all_labels = [line.split(',')[0].strip() for line in l_file]
     if all_labels[0] == 'label':
         all_labels.pop(0)
     labeler = MultilabelLabeler(all_labels)
     labeler.fit()
-    return labeler
+    return labeler, labels_df
 
 
 def get_index_path(args) -> str:

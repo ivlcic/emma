@@ -20,7 +20,7 @@ from ..const import __supported_languages, __label_split_names
 from ..utils import compute_arg_collection_name, get_index_path, load_data, chunk_data, init_labeler, filter_metrics
 from ..model_data import ModelTestData
 
-logger = logging.getLogger('mulabel.bo')
+logger = logging.getLogger('newsmon.bo')
 
 
 # noinspection DuplicatedCode
@@ -72,7 +72,7 @@ def bo_init_embed(args) -> int:
     """
     compute_arg_collection_name(args)
     models = EmbeddingModelWrapperFactory.init_models(args)
-    labeler = init_labeler(args)
+    labeler, _ = init_labeler(args)
     train_data_as_dicts, _ = load_data(args, args.collection + '_train')  # we load the train data
     dev_data_as_dicts, _ = load_data(args, args.collection + '_dev')  # we load the validation data
     test_data_as_dicts, _ = load_data(args, args.collection + '_test')  # we load the test data
@@ -145,7 +145,7 @@ def bo_test_rae(args) -> int:
     """
     compute_arg_collection_name(args)
     models = EmbeddingModelWrapperFactory.init_models(args)
-    labeler = init_labeler(args)
+    labeler, _ = init_labeler(args)
 
     model_data = init_model_data(args, labeler, faiss.METRIC_L2, 'raexmc', models)
 
@@ -205,7 +205,7 @@ def bo_test_rae_sim(args) -> int:
     """
     compute_arg_collection_name(args)
     models = EmbeddingModelWrapperFactory.init_models(args)
-    labeler = init_labeler(args)
+    labeler, _ = init_labeler(args)
 
     model_data = init_model_data(args, labeler, faiss.METRIC_INNER_PRODUCT, 'raexmcsim', models)
 
@@ -266,7 +266,7 @@ def bo_test_zshot(args) -> int:
     """
     compute_arg_collection_name(args)
     models = EmbeddingModelWrapperFactory.init_models(args)
-    labeler = init_labeler(args)
+    labeler, _ = init_labeler(args)
 
     model_data = init_model_data(args, labeler, faiss.METRIC_L2, 'zshot', models)
 

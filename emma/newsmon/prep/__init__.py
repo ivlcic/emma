@@ -97,7 +97,7 @@ def prep_lrp_extract(args) -> int:
     """
     os.environ['HF_HOME'] = args.tmp_dir  # local tmp dir
     compute_arg_collection_name(args)
-    labeler = init_labeler(args)
+    labeler, _ = init_labeler(args)
     all_labels = set(labeler.labels)
     for t in ['train', 'dev', 'test']:
         _, df = load_data(args, f'lrp_{args.collection}_{t}')  # we load the data
@@ -162,7 +162,7 @@ def prep_init_pseudo_labels(args) -> int:
                 else:
                     label_dict[label]['texts'].append(item['text'])
 
-    labeler = init_labeler(args)
+    labeler, _ = init_labeler(args)
     labels_df_data = []
     for id, label in labeler.ids_to_labels().items():
         if label not in label_dict:
@@ -207,7 +207,7 @@ def prep_init_rae_v(args) -> int:
 
     compute_arg_collection_name(args)
     models = EmbeddingModelWrapperFactory.init_models(args)
-    labeler = init_labeler(args)
+    labeler, _ = init_labeler(args)
 
     # read label descriptions / passages
     label_descr_file_path = os.path.join(args.data_in_dir, f'{args.collection}_labels_descr.csv')
@@ -266,7 +266,7 @@ def prep_export_label_space(args) -> int:
     os.environ['HF_HOME'] = args.tmp_dir  # local tmp dir
 
     compute_arg_collection_name(args)
-    labeler = init_labeler(args)
+    labeler, _ = init_labeler(args)
 
     labels_map_filename = os.path.join(args.data_out_dir, args.collection + '_map_labels.csv')
     labels_map_df = pd.read_csv(str(labels_map_filename), encoding='utf-8')

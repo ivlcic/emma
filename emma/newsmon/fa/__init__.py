@@ -26,7 +26,7 @@ from ...core.labels import Labeler
 from ...core.metrics import Metrics
 from ...core.models import retrieve_model_name_map
 
-logger = logging.getLogger('mulabel.fa')
+logger = logging.getLogger('newsmon.fa')
 
 
 # noinspection DuplicatedCode
@@ -77,7 +77,7 @@ def fa_init_embed(args) -> int:
     """
     compute_arg_collection_name(args)
     models = EmbeddingModelWrapperFactory.init_models(args)
-    labeler = init_labeler(args)
+    labeler, _ = init_labeler(args)
     train_data_as_dicts, _ = load_data(args, args.collection + '_train')  # we load the train data
     dev_data_as_dicts, _ = load_data(args, args.collection + '_dev')  # we load the validation data
     test_data_as_dicts, _ = load_data(args, args.collection + '_test')  # we load the test data
@@ -147,7 +147,7 @@ def fa_mine_hard_neg(args) -> int:
     """
     compute_arg_collection_name(args)
     models = EmbeddingModelWrapperFactory.init_models(args)
-    labeler = init_labeler(args)
+    labeler, _ = init_labeler(args)
 
     train_coll_name = args.collection + '_train'
     test_coll_name = args.collection + '_test'
@@ -282,7 +282,7 @@ def fa_test_rae(args) -> int:
     """
     compute_arg_collection_name(args)
     models = EmbeddingModelWrapperFactory.init_models(args)
-    labeler = init_labeler(args)
+    labeler, _ = init_labeler(args)
 
     method = 'raexmc'
     model_data = init_model_data(args, labeler, faiss.METRIC_L2, method, models)
@@ -351,7 +351,7 @@ def fa_test_zshot(args) -> int:
     """
     compute_arg_collection_name(args)
     models = EmbeddingModelWrapperFactory.init_models(args)
-    labeler = init_labeler(args)
+    labeler, _ = init_labeler(args)
 
     model_data = init_model_data(args, labeler, faiss.METRIC_L2, 'zshot', models)
 
@@ -393,7 +393,7 @@ def fa_test_mlknn(args) -> int:
 
     compute_arg_collection_name(args)
     models = EmbeddingModelWrapperFactory.init_models(args)
-    labeler = init_labeler(args)
+    labeler, _ = init_labeler(args)
 
     model_data = init_model_data(args, labeler, faiss.METRIC_L2, 'mlknn', models)
 
@@ -451,7 +451,7 @@ def fa_test_rae_sim(args) -> int:
     """
     compute_arg_collection_name(args)
     models = EmbeddingModelWrapperFactory.init_models(args)
-    labeler = init_labeler(args)
+    labeler, _ = init_labeler(args)
 
     method = 'raexmcsim'
     model_data = init_model_data(args, labeler, faiss.METRIC_INNER_PRODUCT, method, models)
@@ -576,7 +576,7 @@ def fa_optuna_rae_sim(args) -> int:
     """
     compute_arg_collection_name(args)
     models = EmbeddingModelWrapperFactory.init_models(args)
-    labeler = init_labeler(args)
+    labeler, _ = init_labeler(args)
     model_data = init_model_data(args, labeler, faiss.METRIC_INNER_PRODUCT, 'raexmcsim', models)
 
     for m_name, m_data in model_data.items():
@@ -595,7 +595,7 @@ def fa_optuna_rae(args) -> int:
     """
     compute_arg_collection_name(args)
     models = EmbeddingModelWrapperFactory.init_models(args)
-    labeler = init_labeler(args)
+    labeler, _ = init_labeler(args)
     model_data = init_model_data(args, labeler, faiss.METRIC_L2, 'raexmc', models)
 
     for m_name, m_data in model_data.items():
@@ -613,7 +613,7 @@ def fa_train_rae_sim_ext(args) -> int:
     """
     compute_arg_collection_name(args)
     models = EmbeddingModelWrapperFactory.init_models(args)
-    labeler = init_labeler(args)
+    labeler, _ = init_labeler(args)
     method = 'raexmcsimext'
     model_data = init_model_data(args, labeler, faiss.METRIC_INNER_PRODUCT, method, models)
 
