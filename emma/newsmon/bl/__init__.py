@@ -465,6 +465,7 @@ def bl_svm2(args):
         clf = SVC(kernel='rbf', C=1.0, gamma='scale')
         clf.fit(train_texts, train_labels[:, i].astype('int32'))  # Convert label column to int32
         classifiers.append(clf)
+        cp._default_memory_pool.free_all_blocks()
         logger.info(f'SVM {i} train done in {(time.time() - t0):8.2f} seconds')
 
     logger.info(f'SVM train start in {(time.time() - t0):8.2f} seconds')
@@ -482,7 +483,7 @@ def bl_svm2(args):
         if not true_labels:
             continue
         test_text = tfidf.transform([data['text']])
-        y_true_i = labeler.vectorize(true_labels)
+        y_true_i = labeler.vectorize([true_labels])
         logger.info(f'Dim true {y_true_i.shape}')
         y_true.append(y_true_i)
         test_text = cp.sparse.csr_matrix(test_text).astype(cp.float32)
@@ -558,7 +559,7 @@ def bl_logreg(args):
         if not true_labels:
             continue
         test_text = tfidf.transform([data['text']])
-        y_true_i = labeler.vectorize(true_labels)
+        y_true_i = labeler.vectorize([true_labels])
         logger.info(f'Dim true {y_true_i.shape}')
         y_true.append(y_true_i)
         #test_text = test_text.todense()
