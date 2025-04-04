@@ -440,7 +440,9 @@ def bl_svm2(args):
     train_labels = train_labels[non_empty_mask]
     logger.info(f'Filtered missing labels {train_texts.shape}:{train_labels.shape}')
     for x, tl in enumerate(train_labels):
-        logger.info(f'Sample [{x}] Count missing labels {np.sum(tl)}')
+        s = np.sum(tl)
+        if s < 1:
+            logger.info(f'Sample [{x}] Count missing labels {s}')
     svc = SVC(
         kernel='rbf',
         C=1.0,
