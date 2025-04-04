@@ -2,7 +2,7 @@ import logging
 import time
 from argparse import ArgumentParser
 from collections import Counter
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 
 import faiss
 import numpy as np
@@ -378,10 +378,10 @@ def bl_svm(args):
     return 0
 
 
-def _count_labels(target_labels, data_df: pd.DataFrame):
+def _count_labels(target_labels, data: List[List[str]]):
     instance_counts = []
     label_counts = {}
-    for instance_labels in data_df['label']:
+    for instance_labels in data:
         instance_labels.sort()
         if target_labels:
             instance_labels = [item for item in instance_labels if item in target_labels]
@@ -405,6 +405,69 @@ def _filter_samples(target_labels, data: List[Dict[str, Any]]) -> List[Dict[str,
     return data_as_dicts
 
 
+def _partition_svm(train_texts, train_labels, target_labels, test_data) -> Tuple[List[np.ndarray], List[np.ndarray]]:
+    """
+    F**k my GPU poor life
+    """
+    from sklearn.multioutput import MultiOutputClassifier
+    from cuml.svm import SVC
+
+    instance_counts, label_counts = _count_labels(target_labels, train_labels)
+    labeler = MultilabelLabeler(list(label_counts.keys()))
+    labeler.fit()
+
+    tfidf = TfidfVectorizer(max_features=10000)
+    train_texts = tfidf.fit_transform(train_texts)
+    train_labels = labeler.vectorize(train_labels)
+    zero_label_cols = np.where(np.sum(train_labels, axis=0) == 0)[0]
+    logger.warning(f'Missing labels {zero_label_cols}')
+
+    y_true = []
+    y_pred = []
+    X = []
+    for data in test_data:
+        true_labels = data['label']
+        if target_labels:
+            true_labels = [item for item in true_labels if item in target_labels]
+        if not true_labels:
+            continue
+        test_text = tfidf.transform([data['text']])
+        X.append(test_text)
+        y_true_i = labeler.vectorize([true_labels])
+        y_true.append(y_true_i)
+
+    # Split labels into batches of 300 (column-wise)
+    labels = labeler.encoder.classes_
+    for i in range(0, len(labels), 300):
+        train_labels_batch = train_labels[:, i:i + 300]
+        # Row-wise cleanup
+        sample_mask = np.array(train_labels_batch.sum(axis=1) > 0).flatten()
+        X_batch = train_texts[sample_mask]
+        y_batch = train_labels_batch[sample_mask]
+
+        # Check for empty labels in this batch
+        zero_in_batch = np.where(np.sum(y_batch, axis=0) == 0)[0]
+        if zero_in_batch.size > 0:
+            logger.info(f'Batch {i // 300} has zero columns: {zero_in_batch}')
+
+        # Train batch classifier
+        batch_clf = MultiOutputClassifier(
+            SVC(kernel='rbf', C=1.0, gamma='scale', verbose=True)
+        )
+        batch_clf.fit(X_batch, y_batch)
+
+        t1 = time.time()
+        for j, data in enumerate(test_data):
+            y_pred_i = batch_clf.predict(X[j])
+            if i > 0:
+                y_pred[j] = np.concatenate((y_pred[j], y_pred_i), axis=1)
+            else:
+                y_pred.append(y_pred_i)
+        del batch_clf
+
+    return y_true, y_pred
+
+
 def bl_svm2(args):
     """
     Baseline SVM classifier
@@ -412,14 +475,6 @@ def bl_svm2(args):
     ./newsmon bl svm2 -c newsmon -l sl --public --test_l_class Rare
     ./newsmon bl svm2 -c newsmon -l sl --public --test_l_class Frequent
     """
-    #cluster = LocalCUDACluster(
-    #    rmm_async=True,  # Reduce memory fragmentation
-    #    device_memory_limit="270GB",
-    #    jit_unspill=True,  # Handle larger-than-memory data
-    #    enable_nvlink=True
-    #)
-    #client = Client(cluster)
-
     t0 = time.time()
     compute_arg_collection_name(args)
     train_data_as_dicts, train_df = load_data(args, args.collection + '_train')  # we load the train data
@@ -432,71 +487,17 @@ def bl_svm2(args):
         label_classes = load_labels(args.data_in_dir, args.collection, __label_splits, __label_split_names)
         target_labels = label_classes[args.test_l_class]
 
-    instance_counts, label_counts = _count_labels(target_labels, train_df)
+    instance_counts, label_counts = _count_labels(target_labels, train_df['label'].tolist())
     target_data = _filter_samples(target_labels, train_data_as_dicts)
-
     labeler = MultilabelLabeler(list(label_counts.keys()))
     labeler.fit()
 
     train_texts = [x['text'] for x in target_data]
     train_labels = [x['label'] for x in target_data]
 
-    #from sklearn.multioutput import MultiOutputClassifier
-    import cupy as cp
-    from cuml.feature_extraction.text import TfidfVectorizer
-    from cuml.svm import SVC
+    y_true, y_pred = _partition_svm(train_texts, train_labels, target_labels, test_data_as_dicts)
 
-    tfidf = TfidfVectorizer(max_features=10000)
-
-    train_texts = tfidf.fit_transform(pd.Series(train_texts))
-    train_labels = labeler.vectorize(train_labels)
-    zero_label_cols = np.where(np.sum(train_labels, axis=0) == 0)[0]
-    logger.info(f'Missing labels {zero_label_cols}')
-
-    svc = SVC(
-        kernel='rbf',
-        C=1.0,
-        cache_size=200,
-        gamma='scale',
-        verbose=True
-    )
-
-    # Create individual SVM classifiers for each label
-    classifiers = []
-    for i in range(train_labels.shape[1]):
-        clf = SVC(kernel='rbf', C=1.0, gamma='scale', cache_size=2, verbose=True)
-        clf.fit(train_texts, train_labels[:, i].astype('int32'))  # Convert label column to int32
-        classifiers.append(clf)
-        if i % 100 == 0:
-            cp.get_default_memory_pool().free_all_blocks()
-        logger.info(f'SVM {i} train done in {(time.time() - t0):8.2f} seconds')
-
-    logger.info(f'SVM train start in {(time.time() - t0):8.2f} seconds')
-    t0 = time.time()
-    #clf = MultiOutputClassifier(svc)
-    #clf.fit(train_texts, train_labels)
-    logger.info(f'SVM train done in {(time.time() - t0):8.2f} seconds')
-    y_true = []
-    y_pred = []
     t1 = time.time()
-    for data in test_data_as_dicts:
-        true_labels = data['label']
-        if target_labels:
-            true_labels = [item for item in true_labels if item in target_labels]
-        if not true_labels:
-            continue
-        test_text = tfidf.transform([data['text']])
-        y_true_i = labeler.vectorize([true_labels])
-        logger.info(f'Dim true {y_true_i.shape}')
-        y_true.append(y_true_i)
-        test_text = cp.sparse.csr_matrix(test_text).astype(cp.float32)
-        test_text = cp.array(test_text)
-        #y_pred_i = clf.predict(test_text)
-        y_pred_i = cp.vstack([clf.predict(test_text) for clf in classifiers]).T
-        y_pred_i = cp.asnumpy(y_pred_i)
-        logger.info(f'Dim pred {y_pred_i.shape}')
-        y_pred.append(y_pred_i)
-
     metrics = Metrics(f'bl_svm_{args.collection}{suffix}', labeler.get_type_code())
 
     logger.info(f'Computing metrics')
@@ -561,8 +562,8 @@ def bl_logreg(args):
             true_labels = [item for item in true_labels if item in target_labels]
         if not true_labels:
             continue
-        test_text = tfidf.transform([data['text']])
-        y_true_i = labeler.vectorize([true_labels])
+        test_text = tfidf.transform(data['text'])
+        y_true_i = labeler.vectorize(true_labels)
         logger.info(f'Dim true {y_true_i.shape}')
         y_true.append(y_true_i)
         #test_text = test_text.todense()
