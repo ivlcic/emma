@@ -465,7 +465,8 @@ def bl_svm2(args):
         clf = SVC(kernel='rbf', C=1.0, gamma='scale')
         clf.fit(train_texts, train_labels[:, i].astype('int32'))  # Convert label column to int32
         classifiers.append(clf)
-        cp._default_memory_pool.free_all_blocks()
+        if i % 100 == 0:
+            cp.get_default_memory_pool().free_all_blocks()
         logger.info(f'SVM {i} train done in {(time.time() - t0):8.2f} seconds')
 
     logger.info(f'SVM train start in {(time.time() - t0):8.2f} seconds')
