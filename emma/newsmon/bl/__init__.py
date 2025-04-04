@@ -442,10 +442,11 @@ def bl_svm2(args):
     t0 = time.time()
     classifiers = []
     for i in range(train_labels.shape[1]):
+        t1 = time.time()
         clf = SVC(kernel='rbf', C=1.0, gamma='scale')
         clf.fit(train_texts, train_labels[:, i].astype('int32'))  # Convert label column to int32
         classifiers.append(clf)
-
+        logger.info(f'SVM {i} train done in {(time.time() - t1):8.2f} seconds')
 
     logger.info(f'SVM train done in {(time.time() - t0):8.2f} seconds')
     y_true = []
