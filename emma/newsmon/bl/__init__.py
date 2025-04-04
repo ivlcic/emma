@@ -464,7 +464,7 @@ def bl_svm2(args):
     # Create individual SVM classifiers for each label
     classifiers = []
     for i in range(train_labels.shape[1]):
-        clf = SVC(kernel='rbf', C=1.0, gamma='scale', cache_size=24, verbose=True)
+        clf = SVC(kernel='rbf', C=1.0, gamma='scale', cache_size=2, verbose=True)
         clf.fit(train_texts, train_labels[:, i].astype('int32'))  # Convert label column to int32
         classifiers.append(clf)
         if i % 100 == 0:
