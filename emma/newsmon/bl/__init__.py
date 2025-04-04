@@ -539,18 +539,19 @@ def bl_logreg(args):
     #train_labels.extend([x['label'] for x in dev_data_as_dicts])
 
     import cupy as cp
-    from cuml.feature_extraction.text import TfidfVectorizer
+    #from cuml.feature_extraction.text import TfidfVectorizer
+    from sklearn.multioutput import MultiOutputClassifier
     from cuml.linear_model import LogisticRegression
 
-    tfidf = TfidfVectorizer(analyzer='word', max_features=10000)
+    tfidf = TfidfVectorizer(max_features=10000)
 
     train_texts = tfidf.fit_transform(pd.Series(train_texts))
     train_labels = labeler.vectorize(train_labels)
 
     logger.info(f'SVM train start in {(time.time() - t0):8.2f} seconds')
     t0 = time.time()
-    clf = LogisticRegression()
-    clf.fit(train_texts, cp.asarray(train_labels))
+    clf = MultiOutputClassifier(LogisticRegression())
+    clf.fit(train_texts, train_labels)
     logger.info(f'SVM train done in {(time.time() - t0):8.2f} seconds')
     y_true = []
     y_pred = []
@@ -568,7 +569,7 @@ def bl_logreg(args):
         #test_text = test_text.todense()
         #test_text = cp.array(test_text)
         y_pred_i = clf.predict(test_text)
-        y_pred_i = cp.asnumpy(y_pred_i)
+        #y_pred_i = cp.asnumpy(y_pred_i)
         logger.info(f'Dim pred {y_pred_i.shape}')
         y_pred.append(y_pred_i)
 
