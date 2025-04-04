@@ -443,10 +443,15 @@ def bl_svm2(args):
     classifiers = []
     for i in range(train_labels.shape[1]):
         t1 = time.time()
-        clf = SVC(kernel='rbf', C=1.0, gamma='scale')
-        clf.fit(train_texts, train_labels[:, i].astype('int32'))  # Convert label column to int32
-        classifiers.append(clf)
-        logger.info(f'SVM {i} train done in {(time.time() - t1):8.2f} seconds')
+        try:
+            clf = SVC(kernel='rbf', C=1.0, gamma='scale')
+            clf.fit(train_texts, train_labels[:, i].astype('int32'))  # Convert label column to int32
+            classifiers.append(clf)
+            logger.info(f'SVM {i} train done in {(time.time() - t1):8.2f} seconds')
+        except ValueError:
+            logger.info(f'SVM {i} train fail in {(time.time() - t1):8.2f} seconds')
+            classifiers.append(None)
+            continue
 
     logger.info(f'SVM train done in {(time.time() - t0):8.2f} seconds')
     y_true = []
@@ -464,7 +469,7 @@ def bl_svm2(args):
         y_true.append(y_true_i)
         #test_text = cp.sparse.csr_matrix(test_text).astype(cp.float32)
         #test_text = cp.array(test_text)
-        y_pred_i = cp.vstack([clf.predict(test_text) for clf in classifiers]).T
+        y_pred_i = cp.vstack([clf.predict(test_text) if clf is not None else 0 for clf in classifiers]).T
         y_pred_i = cp.asnumpy(y_pred_i)
         logger.info(f'Dim pred {y_pred_i.shape}')
         y_pred.append(y_pred_i)
