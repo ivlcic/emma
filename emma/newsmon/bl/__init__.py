@@ -544,7 +544,7 @@ def bl_logreg(args):
 
     tfidf = TfidfVectorizer(analyzer='word', max_features=10000)
 
-    train_texts = tfidf.fit_transform(train_texts)
+    train_texts = tfidf.fit_transform(pd.Series(train_texts))
     train_labels = labeler.vectorize(train_labels)
 
     logger.info(f'SVM train start in {(time.time() - t0):8.2f} seconds')
