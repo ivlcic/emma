@@ -8,6 +8,7 @@ import faiss
 import numpy as np
 import pandas as pd
 from dask_cuda import LocalCUDACluster
+from dask.distributed import Client
 from tqdm import tqdm
 from sklearn.feature_extraction.text import TfidfVectorizer
 
@@ -413,9 +414,11 @@ def bl_svm2(args):
     """
     cluster = LocalCUDACluster(
         rmm_async=True,  # Reduce memory fragmentation
-        device_memory_limit="130GB",
-        jit_unspill=True  # Handle larger-than-memory data
+        device_memory_limit="270GB",
+        jit_unspill=True,  # Handle larger-than-memory data
+        enable_nvlink=True
     )
+    client = Client(cluster)
 
     t0 = time.time()
     compute_arg_collection_name(args)
@@ -452,7 +455,8 @@ def bl_svm2(args):
         kernel='rbf',
         C=1.0,
         gamma='scale',
-        verbose=True
+        verbose=True,
+        client=client
     )
 
     logger.info(f'SVM train start in {(time.time() - t0):8.2f} seconds')
