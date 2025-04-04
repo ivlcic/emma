@@ -2,7 +2,7 @@ import logging
 import time
 from argparse import ArgumentParser
 from collections import Counter
-from typing import Dict
+from typing import Dict, Any, List
 
 import faiss
 import numpy as np
@@ -16,7 +16,7 @@ from ..embd_model import EmbeddingModelWrapperFactory, EmbeddingModelWrapper
 from ..model_data import ModelTestData
 from ..utils import compute_arg_collection_name, get_index_path, load_data, init_labeler, filter_metrics, load_labels
 from ...core.args import CommonArguments
-from ...core.labels import Labeler
+from ...core.labels import Labeler, MultilabelLabeler
 from ...core.metrics import Metrics
 from ...core.models import retrieve_model_name_map
 
@@ -376,6 +376,33 @@ def bl_svm(args):
     return 0
 
 
+def _count_labels(target_labels, data_df: pd.DataFrame):
+    instance_counts = []
+    label_counts = {}
+    for instance_labels in data_df['label']:
+        instance_labels.sort()
+        if target_labels:
+            instance_labels = [item for item in instance_labels if item in target_labels]
+        if not instance_labels:
+            continue
+        for label in instance_labels:
+            label_counts[label] = label_counts.get(label, 0) + 1
+        instance_counts.append(len(instance_labels))
+    return instance_counts, label_counts
+
+
+def _filter_samples(target_labels, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    data_as_dicts = []
+    for d in data:
+        labels = d['label']
+        if target_labels:
+            labels = [item for item in labels if item in target_labels]
+        if not labels:
+            continue
+        data_as_dicts.append(d)
+    return data_as_dicts
+
+
 def bl_svm2(args):
     """
     Baseline SVM classifier
@@ -385,12 +412,8 @@ def bl_svm2(args):
     """
     t0 = time.time()
     compute_arg_collection_name(args)
-    labeler, labels_df = init_labeler(args)
     train_data_as_dicts, train_df = load_data(args, args.collection + '_train')  # we load the train data
-    dev_data_as_dicts, dev_df = load_data(args, args.collection + '_dev')  # we load the validation data
     test_data_as_dicts, test_df = load_data(args, args.collection + '_test')  # we load the test data
-
-    data_df = pd.concat([train_df, dev_df, test_df], ignore_index=True)
 
     suffix = ''
     target_labels = None
@@ -399,33 +422,15 @@ def bl_svm2(args):
         label_classes = load_labels(args.data_in_dir, args.collection, __label_splits, __label_split_names)
         target_labels = label_classes[args.test_l_class]
 
-    instance_counts = []
-    for instance_labels in data_df['label']:
-        instance_labels.sort()
-        if target_labels:
-            instance_labels = [item for item in instance_labels if item in target_labels]
-        if not instance_labels:
-            continue
-        instance_counts.append(len(instance_labels))
+    instance_counts, label_counts = _count_labels(target_labels, train_df)
+    target_data = _filter_samples(target_labels, train_data_as_dicts)
 
-    std_dev_labels = np.std(instance_counts, axis=0)
-    mean_labels = np.mean(instance_counts, axis=0)
-    logger.info(f'Mean {mean_labels} Standard deviation {std_dev_labels}')
+    labeler = MultilabelLabeler(list(label_counts.keys()))
+    labeler.fit()
 
-    if target_labels:
-        labels_df = labels_df[labels_df['label'].isin(target_labels)]
+    train_texts = [x['text'] for x in target_data]
+    train_labels = [x['label'] for x in target_data]
 
-    top_labels = labels_df.nlargest(round(mean_labels), 'count')
-    predicted_labels = top_labels['label'].tolist()
-    logger.info(f'Top labels: {top_labels}, {predicted_labels}, {type(predicted_labels)}')
-
-    train_texts = [x['text'] for x in train_data_as_dicts]
-    #train_texts.extend([x['text'] for x in dev_data_as_dicts])
-    train_labels = [x['label'] for x in train_data_as_dicts]
-    #train_labels.extend([x['label'] for x in dev_data_as_dicts])
-
-    import cupy as cp
-    #from cuml.feature_extraction.text import TfidfVectorizer
     from sklearn.multioutput import MultiOutputClassifier
     from cuml.svm import SVC
 
@@ -433,16 +438,9 @@ def bl_svm2(args):
 
     train_texts = tfidf.fit_transform(train_texts)
     train_labels = labeler.vectorize(train_labels)
+    zero_label_cols = np.where(np.sum(train_labels, axis=0) == 0)[0]
+    logger.info(f'Missing labels {zero_label_cols}')
 
-    logger.info(f'Filtering missing labels {train_texts.shape}:{train_labels.shape}')
-    non_empty_mask = np.any(train_labels, axis=1)
-    train_texts = train_texts[non_empty_mask]  # Sparse matrix supports masking
-    train_labels = train_labels[non_empty_mask]
-    logger.info(f'Filtered missing labels {train_texts.shape}:{train_labels.shape}')
-    for x, tl in enumerate(train_labels):
-        s = np.sum(tl)
-        if s < 1:
-            logger.info(f'Sample [{x}] Count missing labels {s}')
     svc = SVC(
         kernel='rbf',
         C=1.0,
@@ -475,9 +473,6 @@ def bl_svm2(args):
         logger.info(f'Dim pred {y_pred_i.shape}')
         y_pred.append(y_pred_i)
 
-    suffix = ''
-    if args.test_l_class != 'all':
-        suffix = '_' + args.test_l_class
     metrics = Metrics(f'bl_svm_{args.collection}{suffix}', labeler.get_type_code())
 
     logger.info(f'Computing metrics')
@@ -499,12 +494,8 @@ def bl_logreg(args):
     """
     t0 = time.time()
     compute_arg_collection_name(args)
-    labeler, labels_df = init_labeler(args)
     train_data_as_dicts, train_df = load_data(args, args.collection + '_train')  # we load the train data
-    dev_data_as_dicts, dev_df = load_data(args, args.collection + '_dev')  # we load the validation data
     test_data_as_dicts, test_df = load_data(args, args.collection + '_test')  # we load the test data
-
-    data_df = pd.concat([train_df, dev_df, test_df], ignore_index=True)
 
     suffix = ''
     target_labels = None
@@ -513,40 +504,24 @@ def bl_logreg(args):
         label_classes = load_labels(args.data_in_dir, args.collection, __label_splits, __label_split_names)
         target_labels = label_classes[args.test_l_class]
 
-    instance_counts = []
-    for instance_labels in data_df['label']:
-        instance_labels.sort()
-        if target_labels:
-            instance_labels = [item for item in instance_labels if item in target_labels]
-        if not instance_labels:
-            continue
-        instance_counts.append(len(instance_labels))
+    instance_counts, label_counts = _count_labels(target_labels, train_df)
+    target_data = _filter_samples(target_labels, train_data_as_dicts)
 
-    std_dev_labels = np.std(instance_counts, axis=0)
-    mean_labels = np.mean(instance_counts, axis=0)
-    logger.info(f'Mean {mean_labels} Standard deviation {std_dev_labels}')
+    labeler = MultilabelLabeler(list(label_counts.keys()))
+    labeler.fit()
 
-    if target_labels:
-        labels_df = labels_df[labels_df['label'].isin(target_labels)]
+    train_texts = [x['text'] for x in target_data]
+    train_labels = [x['label'] for x in target_data]
 
-    top_labels = labels_df.nlargest(round(mean_labels), 'count')
-    predicted_labels = top_labels['label'].tolist()
-    logger.info(f'Top labels: {top_labels}, {predicted_labels}, {type(predicted_labels)}')
-
-    train_texts = [x['text'] for x in train_data_as_dicts]
-    #train_texts.extend([x['text'] for x in dev_data_as_dicts])
-    train_labels = [x['label'] for x in train_data_as_dicts]
-    #train_labels.extend([x['label'] for x in dev_data_as_dicts])
-
-    import cupy as cp
-    #from cuml.feature_extraction.text import TfidfVectorizer
     from sklearn.multioutput import MultiOutputClassifier
     from cuml.linear_model import LogisticRegression
 
     tfidf = TfidfVectorizer(max_features=10000)
 
-    train_texts = tfidf.fit_transform(pd.Series(train_texts))
+    train_texts = tfidf.fit_transform(train_texts)
     train_labels = labeler.vectorize(train_labels)
+    zero_label_cols = np.where(np.sum(train_labels, axis=0) == 0)[0]
+    logger.info(f'Missing labels {zero_label_cols}')
 
     logger.info(f'SVM train start in {(time.time() - t0):8.2f} seconds')
     t0 = time.time()
@@ -573,9 +548,6 @@ def bl_logreg(args):
         logger.info(f'Dim pred {y_pred_i.shape}')
         y_pred.append(y_pred_i)
 
-    suffix = ''
-    if args.test_l_class != 'all':
-        suffix = '_' + args.test_l_class
     metrics = Metrics(f'bl_logreg_{args.collection}{suffix}', labeler.get_type_code())
 
     logger.info(f'Computing metrics')
