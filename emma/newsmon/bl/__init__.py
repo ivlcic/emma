@@ -412,13 +412,13 @@ def bl_svm2(args):
     ./newsmon bl svm2 -c newsmon -l sl --public --test_l_class Rare
     ./newsmon bl svm2 -c newsmon -l sl --public --test_l_class Frequent
     """
-    cluster = LocalCUDACluster(
-        rmm_async=True,  # Reduce memory fragmentation
-        device_memory_limit="270GB",
-        jit_unspill=True,  # Handle larger-than-memory data
-        enable_nvlink=True
-    )
-    client = Client(cluster)
+    #cluster = LocalCUDACluster(
+    #    rmm_async=True,  # Reduce memory fragmentation
+    #    device_memory_limit="270GB",
+    #    jit_unspill=True,  # Handle larger-than-memory data
+    #    enable_nvlink=True
+    #)
+    #client = Client(cluster)
 
     t0 = time.time()
     compute_arg_collection_name(args)
@@ -441,7 +441,8 @@ def bl_svm2(args):
     train_texts = [x['text'] for x in target_data]
     train_labels = [x['label'] for x in target_data]
 
-    from sklearn.multioutput import MultiOutputClassifier
+    #from sklearn.multioutput import MultiOutputClassifier
+    import cupy as cp
     from cuml.svm import SVC
 
     tfidf = TfidfVectorizer(max_features=10000)
@@ -455,14 +456,21 @@ def bl_svm2(args):
         kernel='rbf',
         C=1.0,
         gamma='scale',
-        verbose=True,
-        client=client
+        verbose=True
     )
+
+    # Create individual SVM classifiers for each label
+    classifiers = []
+    for i in range(train_labels.shape[1]):
+        clf = SVC(kernel='rbf', C=1.0, gamma='scale')
+        clf.fit(train_texts, train_labels[:, i].astype('int32'))  # Convert label column to int32
+        classifiers.append(clf)
+        logger.info(f'SVM {i} train done in {(time.time() - t0):8.2f} seconds')
 
     logger.info(f'SVM train start in {(time.time() - t0):8.2f} seconds')
     t0 = time.time()
-    clf = MultiOutputClassifier(svc)
-    clf.fit(train_texts, train_labels)
+    #clf = MultiOutputClassifier(svc)
+    #clf.fit(train_texts, train_labels)
     logger.info(f'SVM train done in {(time.time() - t0):8.2f} seconds')
     y_true = []
     y_pred = []
@@ -477,10 +485,11 @@ def bl_svm2(args):
         y_true_i = labeler.vectorize(true_labels)
         logger.info(f'Dim true {y_true_i.shape}')
         y_true.append(y_true_i)
-        #test_text = cp.sparse.csr_matrix(test_text).astype(cp.float32)
-        #test_text = cp.array(test_text)
-        y_pred_i = clf.predict(test_text)
-        #y_pred_i = cp.asnumpy(y_pred_i)
+        test_text = cp.sparse.csr_matrix(test_text).astype(cp.float32)
+        test_text = cp.array(test_text)
+        #y_pred_i = clf.predict(test_text)
+        y_pred_i = cp.vstack([clf.predict(test_text) for clf in classifiers]).T
+        y_pred_i = cp.asnumpy(y_pred_i)
         logger.info(f'Dim pred {y_pred_i.shape}')
         y_pred.append(y_pred_i)
 
