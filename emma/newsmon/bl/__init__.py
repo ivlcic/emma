@@ -327,8 +327,8 @@ def bl_svm(args):
     train_labels = cp.array(train_labels)
 
     gpu_svm = SVC(
-        kernel='linear',
-        C=1.0,
+        #kernel='linear',
+        #C=1.0,
         probability=False,
         #output_type='numpy',
         verbose=True
