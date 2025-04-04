@@ -425,9 +425,7 @@ def bl_svm2(args):
     #train_labels.extend([x['label'] for x in dev_data_as_dicts])
 
     import cupy as cp
-    #from cuml.feature_extraction.text import TfidfVectorizer
-    from cuml.linear_model import LogisticRegression
-    from sklearn.multioutput import MultiOutputClassifier
+    from cuml.feature_extraction.text import TfidfVectorizer
     from cuml.svm import SVC
 
     tfidf = TfidfVectorizer(analyzer='word', max_features=10000)
@@ -436,20 +434,19 @@ def bl_svm2(args):
     train_labels = labeler.vectorize(train_labels)
 
     # Move data to GPU
-    train_texts = cp.sparse.csr_matrix(train_texts).astype(cp.float32)
+    #train_texts = cp.sparse.csr_matrix(train_texts).astype(cp.float32)
     train_labels = cp.asarray(train_labels).astype(cp.int32)
 
-    svc = SVC(
-        kernel='rbf',
-        C=1.0,
-        gamma='scale',
-        verbose=1
-    )
-
+    # Create individual SVM classifiers for each label
     logger.info(f'SVM train start in {(time.time() - t0):8.2f} seconds')
     t0 = time.time()
-    clf = MultiOutputClassifier(svc)
-    clf.fit(train_texts, train_labels)
+    classifiers = []
+    for i in range(train_labels.shape[1]):
+        clf = SVC(kernel='rbf', C=1.0, gamma='scale')
+        clf.fit(train_texts, train_labels[:, i].astype('int32'))  # Convert label column to int32
+        classifiers.append(clf)
+
+
     logger.info(f'SVM train done in {(time.time() - t0):8.2f} seconds')
     y_true = []
     y_pred = []
@@ -464,9 +461,9 @@ def bl_svm2(args):
         y_true_i = labeler.vectorize(true_labels)
         logger.info(f'Dim true {y_true_i.shape}')
         y_true.append(y_true_i)
-        test_text = cp.sparse.csr_matrix(test_text).astype(cp.float32)
+        #test_text = cp.sparse.csr_matrix(test_text).astype(cp.float32)
         #test_text = cp.array(test_text)
-        y_pred_i = clf.predict(test_text)
+        y_pred_i = cp.vstack([clf.predict(test_text) for clf in classifiers]).T
         y_pred_i = cp.asnumpy(y_pred_i)
         logger.info(f'Dim pred {y_pred_i.shape}')
         y_pred.append(y_pred_i)
