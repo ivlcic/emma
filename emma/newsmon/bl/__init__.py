@@ -444,11 +444,12 @@ def bl_svm2(args):
     for i in range(train_labels.shape[1]):
         t1 = time.time()
         try:
+            n_labels = cp.sum(train_labels[:, i])
             clf = SVC(kernel='rbf', C=1.0, gamma='scale')
             clf.fit(train_texts, train_labels[:, i].astype('int32'))  # Convert label column to int32
             classifiers.append(clf)
-            logger.info(f'SVM {i} train done in {(time.time() - t1):8.2f} seconds')
-        except ValueError:
+            logger.info(f'SVM {i} num l:{n_labels} train done in {(time.time() - t1):8.2f} seconds')
+        except RuntimeError:
             logger.info(f'SVM {i} train fail in {(time.time() - t1):8.2f} seconds')
             classifiers.append(None)
             continue
