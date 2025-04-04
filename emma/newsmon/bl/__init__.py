@@ -425,17 +425,17 @@ def bl_svm2(args):
     #train_labels.extend([x['label'] for x in dev_data_as_dicts])
 
     import cupy as cp
-    from cuml.feature_extraction.text import TfidfVectorizer
+    #from cuml.feature_extraction.text import TfidfVectorizer
     from sklearn.multioutput import MultiOutputClassifier
     from cuml.svm import SVC
 
-    tfidf = TfidfVectorizer(analyzer='word', max_features=10000)
+    tfidf = TfidfVectorizer(max_features=10000)
 
-    train_texts = tfidf.fit_transform(pd.Series(train_texts))
+    train_texts = tfidf.fit_transform(train_texts)
     train_labels = labeler.vectorize(train_labels)
 
     # Move data to GPU
-    #train_texts = cp.sparse.csr_matrix(train_texts).astype(cp.float32)
+    train_texts = cp.sparse.csr_matrix(train_texts).astype(cp.float32)
     train_labels = cp.asarray(train_labels).astype(cp.int32)
 
     # 3. Filter empty labels
