@@ -323,14 +323,15 @@ def bl_svm(args):
     from cuml.svm import SVC
     import cupy as cp
 
-    train_texts = cp.array(train_texts.todense())
-    train_labels = cp.array(train_labels)
+    train_texts = train_texts.todense()
+    # train_texts = cp.array(train_texts.todense())
+    #train_labels = cp.array(train_labels)
 
     gpu_svm = SVC(
         #kernel='linear',
         #C=1.0,
         probability=False,
-        #output_type='numpy',
+        output_type='numpy',
         verbose=True
     )
 
@@ -353,9 +354,9 @@ def bl_svm(args):
         logger.info(f'Dim true {y_true_i.shape}')
         y_true.append(y_true_i)
         test_text = test_text.todense()
-        test_text = cp.array(test_text)
+        #test_text = cp.array(test_text)
         y_pred_i = multi_label_clf.predict(test_text)
-        y_pred_i = cp.asnumpy(y_pred_i)
+        #y_pred_i = cp.asnumpy(y_pred_i)
         logger.info(f'Dim pred {y_pred_i.shape}')
         y_pred.append(y_pred_i)
 
