@@ -438,7 +438,7 @@ def _partition_svm(train_texts, train_labels, target_labels, test_data) -> Tuple
     x_test = tfidf.transform(x_test)
 
     # Split labels into batches of 300 (column-wise)
-    bs = 300
+    bs = 200
     labels = labeler.encoder.classes_
     for i in range(0, len(labels), bs):
         train_labels_batch = train_labels[:, i:i + bs]
