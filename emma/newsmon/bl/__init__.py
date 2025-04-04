@@ -434,18 +434,11 @@ def bl_svm2(args):
     train_texts = tfidf.fit_transform(train_texts)
     train_labels = labeler.vectorize(train_labels)
 
-    # Move data to GPU
-    train_texts = cp.sparse.csr_matrix(train_texts).astype(cp.float32)
-    train_labels = cp.asarray(train_labels).astype(cp.int32)
-
-    # 3. Filter empty labels
-    # Create mask for samples with at least one label
-    non_empty_mask = cp.any(train_labels, axis=1)
-    non_empty_indices = cp.where(non_empty_mask)[0]  # Get indices of non-empty samples
-
-    # 4. Apply filtering
-    train_texts = train_texts[non_empty_indices]  # Works with cuML sparse matrices
-    train_labels = train_labels[non_empty_indices]
+    logger.info(f'Filtering missing labels {train_texts.shape}:{train_labels.shape}')
+    non_empty_mask = np.any(train_labels, axis=1)
+    train_texts = train_texts[non_empty_mask]  # Sparse matrix supports masking
+    train_labels = train_labels[non_empty_mask]
+    logger.info(f'Filtered missing labels {train_texts.shape}:{train_labels.shape}')
 
     svc = SVC(
         kernel='rbf',
