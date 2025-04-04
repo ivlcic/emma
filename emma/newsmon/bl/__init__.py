@@ -426,9 +426,10 @@ def bl_svm2(args):
 
     import cupy as cp
     from cuml.feature_extraction.text import TfidfVectorizer
+    from sklearn.multioutput import MultiOutputClassifier
     from cuml.svm import SVC
 
-    tfidf = TfidfVectorizer(max_features=10000)
+    tfidf = TfidfVectorizer(analyzer='word', max_features=10000)
 
     train_texts = tfidf.fit_transform(pd.Series(train_texts))
     train_labels = labeler.vectorize(train_labels)
@@ -437,23 +438,26 @@ def bl_svm2(args):
     #train_texts = cp.sparse.csr_matrix(train_texts).astype(cp.float32)
     train_labels = cp.asarray(train_labels).astype(cp.int32)
 
-    # Create individual SVM classifiers for each label
+    # 3. Filter empty labels
+    # Create mask for samples with at least one label
+    non_empty_mask = cp.any(train_labels, axis=1)
+    non_empty_indices = cp.where(non_empty_mask)[0]  # Get indices of non-empty samples
+
+    # 4. Apply filtering
+    train_texts = train_texts[non_empty_indices]  # Works with cuML sparse matrices
+    train_labels = train_labels[non_empty_indices]
+
+    svc = SVC(
+        kernel='rbf',
+        C=1.0,
+        gamma='scale',
+        verbose=1
+    )
+
     logger.info(f'SVM train start in {(time.time() - t0):8.2f} seconds')
     t0 = time.time()
-    classifiers = []
-    for i in range(train_labels.shape[1]):
-        t1 = time.time()
-        n_labels = cp.sum(train_labels[:, i])
-        try:
-            clf = SVC(kernel='rbf', C=1.0, gamma='scale')
-            clf.fit(train_texts, train_labels[:, i].astype('int32'))  # Convert label column to int32
-            classifiers.append(clf)
-            logger.info(f'SVM {i} num l:{n_labels} train done in {(time.time() - t1):8.2f} seconds')
-        except RuntimeError:
-            logger.info(f'SVM {i} num l:{n_labels} train fail in {(time.time() - t1):8.2f} seconds')
-            classifiers.append(None)
-            continue
-
+    clf = MultiOutputClassifier(svc)
+    clf.fit(train_texts, train_labels)
     logger.info(f'SVM train done in {(time.time() - t0):8.2f} seconds')
     y_true = []
     y_pred = []
@@ -468,9 +472,9 @@ def bl_svm2(args):
         y_true_i = labeler.vectorize(true_labels)
         logger.info(f'Dim true {y_true_i.shape}')
         y_true.append(y_true_i)
-        #test_text = cp.sparse.csr_matrix(test_text).astype(cp.float32)
+        test_text = cp.sparse.csr_matrix(test_text).astype(cp.float32)
         #test_text = cp.array(test_text)
-        y_pred_i = cp.vstack([clf.predict(test_text) if clf is not None else 0 for clf in classifiers]).T
+        y_pred_i = clf.predict(test_text)
         y_pred_i = cp.asnumpy(y_pred_i)
         logger.info(f'Dim pred {y_pred_i.shape}')
         y_pred.append(y_pred_i)
