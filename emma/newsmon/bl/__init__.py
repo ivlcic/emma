@@ -444,7 +444,7 @@ def bl_svm2(args):
         kernel='rbf',
         C=1.0,
         gamma='scale',
-        verbose=1
+        verbose=True
     )
 
     logger.info(f'SVM train start in {(time.time() - t0):8.2f} seconds')
@@ -465,10 +465,10 @@ def bl_svm2(args):
         y_true_i = labeler.vectorize(true_labels)
         logger.info(f'Dim true {y_true_i.shape}')
         y_true.append(y_true_i)
-        test_text = cp.sparse.csr_matrix(test_text).astype(cp.float32)
+        #test_text = cp.sparse.csr_matrix(test_text).astype(cp.float32)
         #test_text = cp.array(test_text)
         y_pred_i = clf.predict(test_text)
-        y_pred_i = cp.asnumpy(y_pred_i)
+        #y_pred_i = cp.asnumpy(y_pred_i)
         logger.info(f'Dim pred {y_pred_i.shape}')
         y_pred.append(y_pred_i)
 
