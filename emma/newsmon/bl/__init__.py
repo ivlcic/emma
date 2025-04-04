@@ -424,22 +424,24 @@ def _partition_svm(train_texts, train_labels, target_labels, test_data) -> Tuple
 
     y_true = []
     y_pred = []
-    X = []
+    x_test = []
     for data in test_data:
         true_labels = data['label']
         if target_labels:
             true_labels = [item for item in true_labels if item in target_labels]
         if not true_labels:
             continue
-        test_text = tfidf.transform([data['text']])
-        X.append(test_text)
+        x_test.append(data['text'])
         y_true_i = labeler.vectorize([true_labels])
         y_true.append(y_true_i)
 
+    x_test = tfidf.transform(x_test)
+
     # Split labels into batches of 300 (column-wise)
+    bs = 300
     labels = labeler.encoder.classes_
-    for i in range(0, len(labels), 300):
-        train_labels_batch = train_labels[:, i:i + 300]
+    for i in range(0, len(labels), bs):
+        train_labels_batch = train_labels[:, i:i + bs]
         # Row-wise cleanup
         sample_mask = np.array(train_labels_batch.sum(axis=1) > 0).flatten()
         X_batch = train_texts[sample_mask]
@@ -448,24 +450,24 @@ def _partition_svm(train_texts, train_labels, target_labels, test_data) -> Tuple
         # Check for empty labels in this batch
         zero_in_batch = np.where(np.sum(y_batch, axis=0) == 0)[0]
         if zero_in_batch.size > 0:
-            logger.info(f'Batch {i // 300} has zero columns: {zero_in_batch}')
+            logger.info(f'Batch {i // bs} has zero columns: {zero_in_batch}')
 
+        t1 = time.time()
         # Train batch classifier
         batch_clf = MultiOutputClassifier(
             SVC(kernel='rbf', C=1.0, gamma='scale', verbose=True)
         )
         batch_clf.fit(X_batch, y_batch)
+        logger.warning(f'Train of batch [{i},{(i + bs)}] done in {(time.time() - t1):8.2f} seconds')
 
         t1 = time.time()
-        for j, data in enumerate(test_data):
-            y_pred_i = batch_clf.predict(X[j])
-            if i > 0:
-                y_pred[j] = np.concatenate((y_pred[j], y_pred_i), axis=1)
-            else:
-                y_pred.append(y_pred_i)
+        y_pred_i = batch_clf.predict(x_test)
+        y_pred.append(y_pred_i)
+        logger.warning(f'Predicted sample batch [{i},{(i + bs)}] in {(time.time() - t1):8.2f} seconds')
         del batch_clf
 
-    return y_true, y_pred
+    y_new_pred = np.concatenate(y_pred)
+    return y_true, [y_new_pred[i] for i in range(y_new_pred.shape[0])]  # convert to a list of nd.array
 
 
 def bl_svm2(args):
