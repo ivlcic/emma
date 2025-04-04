@@ -7,6 +7,7 @@ from typing import Dict, Any, List
 import faiss
 import numpy as np
 import pandas as pd
+from dask_cuda import LocalCUDACluster
 from tqdm import tqdm
 from sklearn.feature_extraction.text import TfidfVectorizer
 
@@ -410,6 +411,12 @@ def bl_svm2(args):
     ./newsmon bl svm2 -c newsmon -l sl --public --test_l_class Rare
     ./newsmon bl svm2 -c newsmon -l sl --public --test_l_class Frequent
     """
+    cluster = LocalCUDACluster(
+        rmm_async=True,  # Reduce memory fragmentation
+        device_memory_limit="130GB",
+        jit_unspill=True  # Handle larger-than-memory data
+    )
+
     t0 = time.time()
     compute_arg_collection_name(args)
     train_data_as_dicts, train_df = load_data(args, args.collection + '_train')  # we load the train data
