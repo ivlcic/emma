@@ -273,6 +273,7 @@ def bl_svm(args):
     ./newsmon bl svm -c newsmon -l sl --public --test_l_class Rare
     ./newsmon bl svm -c newsmon -l sl --public --test_l_class Frequent
     """
+    t0 = time.time()
     compute_arg_collection_name(args)
     labeler, labels_df = init_labeler(args)
     train_data_as_dicts, train_df = load_data(args, args.collection + '_train')  # we load the train data
@@ -308,87 +309,32 @@ def bl_svm(args):
     predicted_labels = top_labels['label'].tolist()
     logger.info(f'Top labels: {top_labels}, {predicted_labels}, {type(predicted_labels)}')
 
-    #svm_ova = OneVsRestClassifier(SVC(kernel='linear', probability=True))
+    train_texts = [x['text'] for x in train_data_as_dicts]
+    #train_texts.extend([x['text'] for x in dev_data_as_dicts])
+    train_labels = [x['label'] for x in train_data_as_dicts]
+    #train_labels.extend([x['label'] for x in dev_data_as_dicts])
+
     tfidf = TfidfVectorizer(max_features=10000)
 
-    train_texts = [x['text'] for x in train_data_as_dicts]
-    train_labels = [x['label'] for x in train_data_as_dicts]
-
-    t0 = time.time()
     train_texts = tfidf.fit_transform(train_texts)
     train_labels = labeler.vectorize(train_labels)
-    logger.info(f'SVM train start in {(time.time() - t0):8.2f} seconds')
 
-    # Custom One-vs-Rest training with progress tracking
-    n_classes = train_labels.shape[1]
-    classifiers = []
-    progress_bar = tqdm(range(n_classes), desc="Training classifiers")
-
+    from sklearn.multioutput import MultiOutputClassifier
     from cuml.svm import SVC
-    from cuml.svm import LinearSVC
-    from sklearn.calibration import CalibratedClassifierCV
-    from sklearn.model_selection import StratifiedKFold
+    train_texts = train_texts.todense()
 
-    # Convert to numpy array with explicit dtype
-    train_texts = np.asarray(train_texts.todense())
+    gpu_svm = SVC(
+        kernel='linear',
+        C=1.0,
+        probability=False,
+        output_type='numpy',
+        verbose=True
+    )
 
-    # Validate array structure
-    assert train_texts.ndim == 2, "Features must be 2D array"
-    positive_counts = np.sum(train_labels, axis=0)
-    for label_idx in progress_bar:
-        # Train a separate SVM classifier for each label
-        #cv = min(2, sum(train_labels[:, label_idx]))  # Dynamic CV folds
-        #gpu_svm = SVC(kernel='linear', probability=True, verbose=True)
-        #calibrated_svm = CalibratedClassifierCV(
-        #    gpu_svm,
-        #    method='sigmoid',
-        #    cv=cv
-        #)
-        #calibrated_svm.fit(train_texts, train_labels[:, label_idx])
-        #classifiers.append(calibrated_svm)
-        labels_i = train_labels[:, label_idx]
-        assert labels_i.ndim == 1, "Labels must be 1D array"
-        assert train_texts.shape[0] == labels_i.shape[0], "Sample count mismatch"
-
-        n_positive = positive_counts[label_idx]
-
-        if n_positive < 2:
-            print(f"Skipping label {label_idx} (only {n_positive} examples)")
-            continue
-
-        # Dynamic cross-validation strategy
-        n_splits = min(2, n_positive)
-
-        try:
-            cv_strategy = StratifiedKFold(
-                n_splits=n_splits,
-                shuffle=True,
-                random_state=42
-            ).split(train_texts, labels_i)
-
-            # GPU-accelerated SVM with adaptive calibration
-            gpu_svm = SVC(
-                kernel='linear',
-                probability=True,  # Disable built-in probability
-            )
-
-            # Custom calibrated classifier
-            calibrated_svm = CalibratedClassifierCV(
-                gpu_svm,
-                method='sigmoid',  # Requires less data than isotonic
-                cv=cv_strategy
-            )
-
-            calibrated_svm.fit(train_texts, labels_i)
-            classifiers.append(calibrated_svm)
-
-        except ValueError as e:
-            print(f"Failed on label {label_idx}: {str(e)}")
-            classifiers.append(None)
-            continue
-
-    #svm_ova.fit(train_texts, train_labels)
+    logger.info(f'SVM train start in {(time.time() - t0):8.2f} seconds')
     t0 = time.time()
+    multi_label_clf = MultiOutputClassifier(gpu_svm)
+    multi_label_clf.fit(train_texts, train_labels)
     logger.info(f'SVM train done in {(time.time() - t0):8.2f} seconds')
     y_true = []
     y_pred = []
@@ -400,14 +346,11 @@ def bl_svm(args):
         if not true_labels:
             continue
         test_text = tfidf.transform(data['text'])
-        y_true.append(labeler.vectorize(true_labels))
-
-        y_pred_i = []
-        for clf in classifiers:
-            if clf is None:
-                y_pred_i.append(0)
-                continue
-            y_pred_i.append(clf.predict(test_text))
+        y_true_i = labeler.vectorize(true_labels)
+        logger.info(f'Dim true {y_true_i.shape}')
+        y_true.append(y_true_i)
+        y_pred_i = multi_label_clf.predict(test_text)
+        logger.info(f'Dim pred {y_pred_i.shape}')
         y_pred.append(y_pred_i)
 
     suffix = ''
@@ -421,100 +364,4 @@ def bl_svm(args):
     meta = {'num_samples': np.shape(y_true_m)[0], 'num_labels': np.shape(y_true_m)[1]}
     metrics.dump(args.data_result_dir, meta, None, 100)
     logger.info(f'Computation done in {(time.time() - t1):8.2f} seconds')
-
-    return 0
-
-
-def bl_svm2(args):
-    """
-    Baseline SVM classifier
-    ./newsmon bl svm -c newsmon -l sl --public
-    ./newsmon bl svm -c newsmon -l sl --public --test_l_class Rare
-    ./newsmon bl svm -c newsmon -l sl --public --test_l_class Frequent
-    """
-    t0 = time.time()
-    compute_arg_collection_name(args)
-    labeler, labels_df = init_labeler(args)
-    train_data_as_dicts, train_df = load_data(args, args.collection + '_train')  # we load the train data
-    dev_data_as_dicts, dev_df = load_data(args, args.collection + '_dev')  # we load the validation data
-    test_data_as_dicts, test_df = load_data(args, args.collection + '_test')  # we load the test data
-
-    data_df = pd.concat([train_df, dev_df, test_df], ignore_index=True)
-
-    suffix = ''
-    target_labels = None
-    if args.test_l_class != 'all':
-        suffix = '_' + args.test_l_class
-        label_classes = load_labels(args.data_in_dir, args.collection, __label_splits, __label_split_names)
-        target_labels = label_classes[args.test_l_class]
-
-    instance_counts = []
-    for instance_labels in data_df['label']:
-        instance_labels.sort()
-        if target_labels:
-            instance_labels = [item for item in instance_labels if item in target_labels]
-        if not instance_labels:
-            continue
-        instance_counts.append(len(instance_labels))
-
-    std_dev_labels = np.std(instance_counts, axis=0)
-    mean_labels = np.mean(instance_counts, axis=0)
-    logger.info(f'Mean {mean_labels} Standard deviation {std_dev_labels}')
-
-    if target_labels:
-        labels_df = labels_df[labels_df['label'].isin(target_labels)]
-
-    top_labels = labels_df.nlargest(round(mean_labels), 'count')
-    predicted_labels = top_labels['label'].tolist()
-    logger.info(f'Top labels: {top_labels}, {predicted_labels}, {type(predicted_labels)}')
-
-    train_texts = [x['text'] for x in train_data_as_dicts]
-    train_texts.extend([x['text'] for x in dev_data_as_dicts])
-    train_labels = [x['label'] for x in train_data_as_dicts]
-    train_labels.extend([x['label'] for x in dev_data_as_dicts])
-
-    tfidf = TfidfVectorizer(max_features=10000)
-
-    train_texts = tfidf.fit_transform(train_texts)
-    train_labels = labeler.vectorize(train_labels)
-
-    import cupy as cp
-    from sklearn.multioutput import MultiOutputClassifier
-    from sklearn.calibration import CalibratedClassifierCV
-    from sklearn.model_selection import StratifiedKFold
-    from cuml.svm import SVC
-    # Convert to dense array and move to GPU
-    #X_gpu = cp.sparse.csr_matrix(train_texts).todense()  # Convert to dense GPU array
-    #y_gpu = cp.array(train_labels)
-    #X_gpu = cp.asarray(train_texts.todense(), dtype=cp.float32)
-    #y_gpu = cp.asarray(train_labels, dtype=cp.float32)  # For classification use 'int64'
-    train_texts = train_texts.todense()
-
-    cv_strategy = StratifiedKFold(
-        n_splits=2,
-        shuffle=True,
-        random_state=42
-    ).split(train_texts, train_labels)
-
-    gpu_svm = SVC(
-        kernel='linear',
-        C=1.0,
-        probability=True,
-        output_type='numpy',
-        verbose=True
-    )
-
-    # Custom calibrated classifier
-    calibrated_svm = CalibratedClassifierCV(
-        gpu_svm,
-        method='sigmoid',
-        cv=cv_strategy
-    )
-
-    logger.info(f'SVM train start in {(time.time() - t0):8.2f} seconds')
-    t0 = time.time()
-    calibrated_svm.fit(train_texts, train_labels)
-    logger.info(f'SVM train done in {(time.time() - t0):8.2f} seconds')
-    #multi_label_clf = MultiOutputClassifier(calibrated_svm)
-    #multi_label_clf.fit(train_texts, train_labels)
     return 0
