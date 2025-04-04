@@ -571,7 +571,7 @@ def bl_logreg(args):
     suffix = ''
     if args.test_l_class != 'all':
         suffix = '_' + args.test_l_class
-    metrics = Metrics(f'bl_svm_{args.collection}{suffix}', labeler.get_type_code())
+    metrics = Metrics(f'bl_logreg_{args.collection}{suffix}', labeler.get_type_code())
 
     logger.info(f'Computing metrics')
     y_true_m, y_pred_m = filter_metrics(args, labeler, y_true, y_pred)
