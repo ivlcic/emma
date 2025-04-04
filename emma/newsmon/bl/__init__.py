@@ -443,11 +443,12 @@ def bl_svm2(args):
 
     #from sklearn.multioutput import MultiOutputClassifier
     import cupy as cp
+    from cuml.feature_extraction.text import TfidfVectorizer
     from cuml.svm import SVC
 
     tfidf = TfidfVectorizer(max_features=10000)
 
-    train_texts = tfidf.fit_transform(train_texts)
+    train_texts = tfidf.fit_transform(pd.Series(train_texts))
     train_labels = labeler.vectorize(train_labels)
     zero_label_cols = np.where(np.sum(train_labels, axis=0) == 0)[0]
     logger.info(f'Missing labels {zero_label_cols}')
@@ -455,6 +456,7 @@ def bl_svm2(args):
     svc = SVC(
         kernel='rbf',
         C=1.0,
+        cache_size=200,
         gamma='scale',
         verbose=True
     )
@@ -462,7 +464,7 @@ def bl_svm2(args):
     # Create individual SVM classifiers for each label
     classifiers = []
     for i in range(train_labels.shape[1]):
-        clf = SVC(kernel='rbf', C=1.0, gamma='scale')
+        clf = SVC(kernel='rbf', C=1.0, gamma='scale', cache_size=10, verbose=True, handle_sparse=True)
         clf.fit(train_texts, train_labels[:, i].astype('int32'))  # Convert label column to int32
         classifiers.append(clf)
         if i % 100 == 0:
