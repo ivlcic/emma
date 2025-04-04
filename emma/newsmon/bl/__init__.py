@@ -481,7 +481,7 @@ def bl_svm2(args):
             true_labels = [item for item in true_labels if item in target_labels]
         if not true_labels:
             continue
-        test_text = tfidf.transform(data['text'])
+        test_text = tfidf.transform([data['text']])
         y_true_i = labeler.vectorize(true_labels)
         logger.info(f'Dim true {y_true_i.shape}')
         y_true.append(y_true_i)
@@ -557,7 +557,7 @@ def bl_logreg(args):
             true_labels = [item for item in true_labels if item in target_labels]
         if not true_labels:
             continue
-        test_text = tfidf.transform(data['text'])
+        test_text = tfidf.transform([data['text']])
         y_true_i = labeler.vectorize(true_labels)
         logger.info(f'Dim true {y_true_i.shape}')
         y_true.append(y_true_i)
