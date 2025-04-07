@@ -37,8 +37,9 @@ retrieve_model_name_map = {
     'jina3': 'jinaai/jina-embeddings-v3',
     'gte': 'Alibaba-NLP/gte-multilingual-base',
     'kalm_v15': 'HIT-TMG/KaLM-embedding-multilingual-mini-instruct-v1.5',
-    'm_bge_m3': 'mulabel_bge-m3',
+    'm_bge_m3': 'newsmon_bge-m3',
     'e_bge_m3': 'eurlex_bge-m3',
+    'tfidf': 'sklearn.feature_extraction.text.TfidfVectorizer',
 }
 
 

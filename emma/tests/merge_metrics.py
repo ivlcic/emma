@@ -13,7 +13,7 @@ new_csv_path = 'metrics'
 groups = [
     ['newsmon', 'eurlex'],
     ['All', 'Frequent', 'Rare'],
-    ['bl', 'xlmrb', 'zshot', 'mlknn', 'raexmcsim', 'raexmc'],
+    ['weak', 'svm', 'logreg', 'xlmrb', 'zshot', 'mlknn', 'raexmcsim', 'raexmc'],
     ['all', 'random', 'majority', 'gte', 'jina', '_bge_m3_', '_ftbge_m3_']
 ]
 all_groups = set(itertools.chain.from_iterable(groups))

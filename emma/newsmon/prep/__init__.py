@@ -3,12 +3,16 @@ import ast
 import logging
 import time
 import random
+from collections import Counter
+
 import numpy as np
 import pandas as pd
 import pandas.api.types as ptypes
 
 from typing import Dict, Any, List
 from argparse import ArgumentParser
+
+from holoviews import output
 from tqdm import tqdm
 
 from ..embd_model import EmbeddingModelWrapperFactory
@@ -16,9 +20,8 @@ from ...core.args import CommonArguments
 from ...core.models import retrieve_model_name_map
 
 from ..tokenizer import get_segmenter
-from ..utils import compute_arg_collection_name, init_labeler, load_data, chunk_data, get_index_path
-from ..const import __supported_languages, __label_split_names, __supported_passage_sizes
-
+from ..utils import compute_arg_collection_name, init_labeler, load_data, chunk_data, get_index_path, load_labels
+from ..const import __supported_languages, __label_split_names, __supported_passage_sizes, __label_splits
 
 logger = logging.getLogger('newsmon.prep')
 
@@ -403,3 +406,99 @@ def prep_analyze(arg) -> int:
     print(histogram_df)
 
     return 0
+
+
+def prep_label_project(args):
+    """
+    UMAP label space projection
+    ./newsmon prep label_project -c newsmon -l sl --public
+    ./newsmon prep label_project -c newsmon -l sl --public --test_l_class Rare
+    ./newsmon prep label_project -c newsmon -l sl --public --test_l_class Frequent
+
+    ./newsmon prep label_project -c eurlex
+    ./newsmon prep label_project -c eurlex --test_l_class Rare
+    ./newsmon prep label_project -c eurlex --test_l_class Frequent
+    """
+    compute_arg_collection_name(args)
+    labeler, labels_df = init_labeler(args)
+    train_data_as_dicts, train_df = load_data(args, args.collection + '_train')  # we load the train data
+    dev_data_as_dicts, dev_df = load_data(args, args.collection + '_dev')  # we load the validation data
+    test_data_as_dicts, test_df = load_data(args, args.collection + '_test')  # we load the test data
+
+    data_df = pd.concat([train_df, dev_df, test_df], ignore_index=True)
+
+    suffix = ''
+    c = args.collection_conf
+    if 'newsmon' in args.collection:
+        c = 'NewsMon'
+    if 'eurlex' in args.collection:
+        c = 'EurLex57K'
+    title_append = f' - {c}'
+    target_labels = None
+    if args.test_l_class != 'all':
+        title_append += f', {args.test_l_class} labels'
+        suffix = '_' + args.test_l_class
+        label_classes = load_labels(args.data_in_dir, args.collection, __label_splits, __label_split_names)
+        target_labels = label_classes[args.test_l_class]
+
+    sample_tag_counts = []
+    for instance_labels in data_df['label']:
+        instance_labels.sort()
+        if target_labels:
+            instance_labels = [item for item in instance_labels if item in target_labels]
+        if not instance_labels:
+            continue
+        sample_tag_counts.append(len(instance_labels))
+
+    std_dev_labels = np.std(sample_tag_counts, axis=0)
+    mean_labels = np.mean(sample_tag_counts, axis=0)
+    total = len(sample_tag_counts)
+    logger.info(f'Mean {mean_labels} Standard deviation {std_dev_labels}, total samples {total}')
+
+    label_lists = []
+    for split in [train_data_as_dicts, dev_data_as_dicts, test_data_as_dicts]:
+        for data_sample in split:
+            label_lists.append(data_sample['label'])
+
+    label_space = np.array(labeler.vectorize(label_lists))
+    logger.info(f'Label space {label_space.shape}')
+
+    label_density = np.sum(label_space, axis=1)  / label_space.shape[1]
+    logger.info(f'Density space {label_density.shape}')
+    logger.info(f'Density space {label_density}')
+    max_dens = np.max(label_density)
+    min_dens = np.min(label_density)
+    bins = np.linspace(min_dens, max_dens, 11)
+    logger.info(f'Bins {bins}')
+    digitized_samples = np.digitize(label_density, bins, right=False) - 1
+    logger.info(f'Digitized space {digitized_samples.shape}')
+    logger.info(f'Digitized space {digitized_samples}')
+
+    #import cupy as cp
+    #from cuml.manifold import UMAP
+    import umap
+    import seaborn as sns
+
+    # Initialize the UMAP model
+    umap_model = umap.UMAP()
+
+    t0 = time.time()
+    embedding = umap_model.fit_transform(label_space)
+    logger.info(f'Computation done in {(time.time() - t0):8.2f} seconds')
+    logger.info(f'Embedding space {embedding.shape}')
+
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(10, 8))
+    sns.scatterplot(x=embedding[:, 0],
+                    y=embedding[:, 1],
+                    hue=digitized_samples,
+                    palette="coolwarm",
+                    edgecolor=None,
+                    alpha=0.7)
+    plt.gca().set_aspect('equal', 'datalim')
+    #plt.title(f'UMAP Visualization{title_append}', fontsize=18)
+    plt.legend(title="Label Density", ncol=4)
+    plt.tight_layout()
+    output_filename = os.path.join(args.data_result_dir, f'label_tsne_proj_{args.collection}{suffix}.png')
+    plt.savefig(output_filename, dpi=300)  # , transparent=True)
+    plt.close()

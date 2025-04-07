@@ -4,6 +4,7 @@ from typing import Union, List, Dict
 import numpy as np
 import torch
 from FlagEmbedding import BGEM3FlagModel
+from sklearn.feature_extraction.text import TfidfVectorizer
 from transformers import AutoModel
 
 from .gte import GTEEmbedding
@@ -15,6 +16,7 @@ retrieve_model_name_map = {
     'kalm_v15': 'HIT-TMG/KaLM-embedding-multilingual-mini-instruct-v1.5',
     'n_bge_m3': 'newsmon_bge-m3',
     'e_bge_m3': 'eurlex_bge-m3',
+    'tfidf': 'sklearn.feature_extraction.text.TfidfVectorizer',
 }
 
 
@@ -73,6 +75,19 @@ class BgeM3(EmbeddingModelWrapper):
         return self.model.encode(text_to_embed)['dense_vecs']
 
 
+class TFIDF(EmbeddingModelWrapper):
+
+    def __init__(self):
+        super(TFIDF, self).__init__('tfidf', 'sklearn.feature_extraction.text.TfidfVectorizer')
+        self.model = TfidfVectorizer(max_features=10000)
+
+    def fit(self, train_text: List[str]):
+        self.model.fit(train_text)
+
+    def embed(self, text_to_embed: Union[str, List[str]]) -> np.ndarray:
+        return self.model.transform(text_to_embed)
+
+
 class EmbeddingModelWrapperFactory:
     @classmethod
     def init_models(cls, args) -> Dict[str, EmbeddingModelWrapper]:
@@ -94,4 +109,6 @@ class EmbeddingModelWrapperFactory:
                 models[ptm_name] = Jina3()
             if ptm_name == 'gte':
                 models[ptm_name] = Gte()
+            if ptm_name == 'tfidf':
+                models[ptm_name] = TFIDF()
         return models

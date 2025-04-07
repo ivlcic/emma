@@ -7,8 +7,6 @@ from typing import Dict, Any, List, Tuple
 import faiss
 import numpy as np
 import pandas as pd
-from dask_cuda import LocalCUDACluster
-from dask.distributed import Client
 from tqdm import tqdm
 from sklearn.feature_extraction.text import TfidfVectorizer
 
@@ -61,7 +59,7 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
         help=f'Use only ptm_models (filter everything else out). '
              f'You can use a comma separated list of {retrieve_model_name_map.keys()}',
         type=str,
-        default='bge_m3'
+        default='tfidf'
     )
 
 
@@ -180,7 +178,7 @@ def bl_majority(args):
         y_true.append(y_true_i)
         y_pred.append(y_pred_i)
 
-    metrics = Metrics(f'bl_majority_{args.collection}{suffix}', labeler.get_type_code())
+    metrics = Metrics(f'weak_majority_{args.collection}{suffix}', labeler.get_type_code())
 
     logger.info(f'Computing metrics')
     y_true_m, y_pred_m = filter_metrics(args, labeler, y_true, y_pred)
@@ -256,7 +254,7 @@ def bl_random(args):
         y_true.append(y_true_i)
         y_pred.append(y_pred_i)
 
-    metrics = Metrics(f'bl_random_{args.collection}{suffix}', labeler.get_type_code())
+    metrics = Metrics(f'weak_random_{args.collection}{suffix}', labeler.get_type_code())
 
     logger.info(f'Computing metrics')
     y_true_m, y_pred_m = filter_metrics(args, labeler, y_true, y_pred)
@@ -265,116 +263,6 @@ def bl_random(args):
     metrics.dump(args.data_result_dir, meta, None, 100)
     logger.info(f'Computation done in {(time.time() - t1):8.2f} seconds')
 
-    return 0
-
-
-def bl_svm(args):
-    """
-    Baseline SVM classifier
-    ./newsmon bl svm -c newsmon -l sl --public
-    ./newsmon bl svm -c newsmon -l sl --public --test_l_class Rare
-    ./newsmon bl svm -c newsmon -l sl --public --test_l_class Frequent
-    """
-    t0 = time.time()
-    compute_arg_collection_name(args)
-    labeler, labels_df = init_labeler(args)
-    train_data_as_dicts, train_df = load_data(args, args.collection + '_train')  # we load the train data
-    dev_data_as_dicts, dev_df = load_data(args, args.collection + '_dev')  # we load the validation data
-    test_data_as_dicts, test_df = load_data(args, args.collection + '_test')  # we load the test data
-
-    data_df = pd.concat([train_df, dev_df, test_df], ignore_index=True)
-
-    suffix = ''
-    target_labels = None
-    if args.test_l_class != 'all':
-        suffix = '_' + args.test_l_class
-        label_classes = load_labels(args.data_in_dir, args.collection, __label_splits, __label_split_names)
-        target_labels = label_classes[args.test_l_class]
-
-    instance_counts = []
-    for instance_labels in data_df['label']:
-        instance_labels.sort()
-        if target_labels:
-            instance_labels = [item for item in instance_labels if item in target_labels]
-        if not instance_labels:
-            continue
-        instance_counts.append(len(instance_labels))
-
-    std_dev_labels = np.std(instance_counts, axis=0)
-    mean_labels = np.mean(instance_counts, axis=0)
-    logger.info(f'Mean {mean_labels} Standard deviation {std_dev_labels}')
-
-    if target_labels:
-        labels_df = labels_df[labels_df['label'].isin(target_labels)]
-
-    top_labels = labels_df.nlargest(round(mean_labels), 'count')
-    predicted_labels = top_labels['label'].tolist()
-    logger.info(f'Top labels: {top_labels}, {predicted_labels}, {type(predicted_labels)}')
-
-    train_texts = [x['text'] for x in train_data_as_dicts]
-    #train_texts.extend([x['text'] for x in dev_data_as_dicts])
-    train_labels = [x['label'] for x in train_data_as_dicts]
-    #train_labels.extend([x['label'] for x in dev_data_as_dicts])
-
-    import cupy as cp
-    from cuml.feature_extraction.text import TfidfVectorizer
-    from cuml.linear_model import LogisticRegression
-    from sklearn.multioutput import MultiOutputClassifier
-    from cuml.svm import SVC
-
-    tfidf = TfidfVectorizer(analyzer='word', max_features=10000)
-
-    train_texts = tfidf.fit_transform(train_texts)
-    train_labels = labeler.vectorize(train_labels)
-
-    # train_texts = train_texts.todense()
-    # train_texts = cp.array(train_texts.todense())
-    #train_labels = cp.array(train_labels)
-
-    gpu_svm = SVC(
-        #kernel='linear',
-        #C=1.0,
-        probability=False,
-        output_type='numpy',
-        verbose=True
-    )
-
-    logger.info(f'SVM train start in {(time.time() - t0):8.2f} seconds')
-    t0 = time.time()
-    clf = MultiOutputClassifier(gpu_svm)
-    clf.fit(train_texts, train_labels)
-    logger.info(f'SVM train done in {(time.time() - t0):8.2f} seconds')
-    y_true = []
-    y_pred = []
-    t1 = time.time()
-    for data in test_data_as_dicts:
-        true_labels = data['label']
-        if target_labels:
-            true_labels = [item for item in true_labels if item in target_labels]
-        if not true_labels:
-            continue
-        test_text = tfidf.transform(data['text'])
-        y_true_i = labeler.vectorize(true_labels)
-        logger.info(f'Dim true {y_true_i.shape}')
-        y_true.append(y_true_i)
-        test_text = test_text.todense()
-        #test_text = cp.array(test_text)
-        y_pred_i = clf.predict(test_text)
-        #y_pred_i = cp.asnumpy(y_pred_i)
-        logger.info(f'Dim pred {y_pred_i.shape}')
-        y_pred.append(y_pred_i)
-
-    suffix = ''
-    if args.test_l_class != 'all':
-        suffix = '_' + args.test_l_class
-    metrics = Metrics(f'bl_svm_{args.collection}{suffix}', labeler.get_type_code())
-
-    logger.info(f'Computing metrics')
-    y_true_m, y_pred_m = filter_metrics(args, labeler, y_true, y_pred)
-    metrics(y_true_m, y_pred_m, 'test/', 0.5)
-    meta = {'num_samples': np.shape(y_true_m)[0], 'num_labels': np.shape(y_true_m)[1]}
-    metrics.dump(args.data_result_dir, meta, None, 100)
-    logger.info(f'Computation done in {(time.time() - t1):8.2f} seconds')
     return 0
 
 
@@ -393,94 +281,82 @@ def _count_labels(target_labels, data: List[List[str]]):
     return instance_counts, label_counts
 
 
-def _filter_samples(target_labels, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _filter_samples(target_labels, data: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[List[str]]]:
     data_as_dicts = []
+    data_labels = []
     for d in data:
         labels = d['label']
         if target_labels:
             labels = [item for item in labels if item in target_labels]
         if not labels:
             continue
+        d['label'] = labels
         data_as_dicts.append(d)
-    return data_as_dicts
+        data_labels.append(labels)
+    return data_as_dicts, data_labels
 
 
-def _partition_svm(train_texts, train_labels, target_labels, test_data) -> Tuple[List[np.ndarray], List[np.ndarray]]:
+def _partition_svm(labeler, train_texts, train_labels, x_test, y_true) -> np.ndarray:
     """
     F**k my GPU poor life
     """
     from sklearn.multioutput import MultiOutputClassifier
     from cuml.svm import SVC
 
-    instance_counts, label_counts = _count_labels(target_labels, train_labels)
-    labeler = MultilabelLabeler(list(label_counts.keys()))
-    labeler.fit()
-
-    tfidf = TfidfVectorizer(max_features=10000)
-    train_texts = tfidf.fit_transform(train_texts)
-    train_labels = labeler.vectorize(train_labels)
-    zero_label_cols = np.where(np.sum(train_labels, axis=0) == 0)[0]
-    logger.warning(f'Missing labels {zero_label_cols}')
-
-    y_true = []
     y_pred = []
-    x_test = []
-    for data in test_data:
-        true_labels = data['label']
-        if target_labels:
-            true_labels = [item for item in true_labels if item in target_labels]
-        if not true_labels:
-            continue
-        x_test.append(data['text'])
-        y_true_i = labeler.vectorize([true_labels])
-        y_true.append(y_true_i)
-
-    x_test = tfidf.transform(x_test)
-
     # Split labels into batches of 300 (column-wise)
-    bs = 200
+    bs = 65  # freq-eurlex
+    bs = 50  # freq-newsmon
+    #bs = 240
     labels = labeler.encoder.classes_
+    assert y_true.shape[0] == x_test.shape[0]
+    assert y_true.shape[1] == len(labels)
+
     for i in range(0, len(labels), bs):
         train_labels_batch = train_labels[:, i:i + bs]
         # Row-wise cleanup
-        sample_mask = np.array(train_labels_batch.sum(axis=1) > 0).flatten()
-        X_batch = train_texts[sample_mask]
-        y_batch = train_labels_batch[sample_mask]
-
+        #sample_mask = np.array(train_labels_batch.sum(axis=1) > 0).flatten()
+        #X_batch = train_texts[sample_mask]
+        #y_batch = train_labels_batch[sample_mask]
+        # No Row-wise cleanup
+        X_batch = train_texts
+        y_batch = train_labels_batch
         # Check for empty labels in this batch
         zero_in_batch = np.where(np.sum(y_batch, axis=0) == 0)[0]
         if zero_in_batch.size > 0:
-            logger.info(f'Batch {i // bs} has zero columns: {zero_in_batch}')
+            logger.warning(f'Batch {i // bs} has zero columns: {zero_in_batch}')
 
         t1 = time.time()
         # Train batch classifier
         batch_clf = MultiOutputClassifier(
-            SVC(kernel='rbf', C=1.0, gamma='scale', verbose=True)
+            SVC(kernel='rbf', C=1.0, gamma='scale', verbose=True),
         )
         batch_clf.fit(X_batch, y_batch)
-        logger.warning(f'Train of batch [{i},{(i + bs)}] done in {(time.time() - t1):8.2f} seconds')
+        logger.warning(f'Train of batch [{y_batch.shape}][{i},{(i + bs)}] done in {(time.time() - t1):8.2f} seconds')
 
         t1 = time.time()
         y_pred_i = batch_clf.predict(x_test)
         y_pred.append(y_pred_i)
-        logger.warning(f'Predicted sample batch [{i},{(i + bs)}] in {(time.time() - t1):8.2f} seconds')
+        logger.warning(f'Predicted sample batch [{y_batch.shape}][{i},{(i + bs)}] in {(time.time() - t1):8.2f} seconds')
         del batch_clf
 
-    y_new_pred = np.concatenate(y_pred)
-    return y_true, [y_new_pred[i] for i in range(y_new_pred.shape[0])]  # convert to a list of nd.array
+    y_pred = np.concatenate(y_pred, axis=1)
+    return y_pred
 
 
-def bl_svm2(args):
+def bl_svm(args):
     """
     Baseline SVM classifier
-    ./newsmon bl svm2 -c newsmon -l sl --public
-    ./newsmon bl svm2 -c newsmon -l sl --public --test_l_class Rare
-    ./newsmon bl svm2 -c newsmon -l sl --public --test_l_class Frequent
+    ./newsmon bl svm -c newsmon -l sl --public
+    ./newsmon bl svm -c newsmon -l sl --public --test_l_class Rare
+    ./newsmon bl svm -c newsmon -l sl --public --test_l_class Frequent
     """
     t0 = time.time()
     compute_arg_collection_name(args)
     train_data_as_dicts, train_df = load_data(args, args.collection + '_train')  # we load the train data
     test_data_as_dicts, test_df = load_data(args, args.collection + '_test')  # we load the test data
+
+    models = EmbeddingModelWrapperFactory.init_models(args)
 
     suffix = ''
     target_labels = None
@@ -490,26 +366,47 @@ def bl_svm2(args):
         target_labels = label_classes[args.test_l_class]
 
     instance_counts, label_counts = _count_labels(target_labels, train_df['label'].tolist())
-    target_data = _filter_samples(target_labels, train_data_as_dicts)
-    labeler = MultilabelLabeler(list(label_counts.keys()))
+    filtered_data, filtered_labels = _filter_samples(target_labels, train_data_as_dicts)
+
+    valid_labels = list(label_counts.keys())
+    labeler = MultilabelLabeler(valid_labels)
     labeler.fit()
+    logger.info(f'Computed labels in {(time.time() - t0):8.2f} seconds')
 
-    train_texts = [x['text'] for x in target_data]
-    train_labels = [x['label'] for x in target_data]
+    train_texts = [x['text'] for x in filtered_data]
+    logger.info(f'Computed data {len(train_texts)} samples and {len(labeler.encoder.classes_)}')
 
-    y_true, y_pred = _partition_svm(train_texts, train_labels, target_labels, test_data_as_dicts)
+    train_labels = labeler.vectorize(filtered_labels)
+    zero_label_cols = np.where(np.sum(train_labels, axis=0) == 0)[0]
+    logger.info(f'Missing labels {zero_label_cols}')
 
-    t1 = time.time()
-    metrics = Metrics(f'bl_svm_{args.collection}{suffix}', labeler.get_type_code())
+    test_data, test_labels = _filter_samples(valid_labels, test_data_as_dicts)
+    test_text = [x['text'] for x in test_data]
+    y_true = labeler.vectorize(test_labels)
 
-    logger.info(f'Computing metrics')
-    y_true_m, y_pred_m = filter_metrics(args, labeler, y_true, y_pred)
-    metrics(y_true_m, y_pred_m, 'test/', 0.5)
-    meta = {'num_samples': np.shape(y_true_m)[0], 'num_labels': np.shape(y_true_m)[1]}
-    metrics.dump(args.data_result_dir, meta, None, 100)
-    logger.info(f'Computation done in {(time.time() - t1):8.2f} seconds')
+    for m_name, model in models.items():
+        if m_name == 'tfidf':
+            model.fit(train_texts)
+        t0 = time.time()
+        train_texts = model.embed(train_texts)
+        logger.info(f'SVM train embeddings {m_name} done in {(time.time() - t0):8.2f} seconds')
+
+        t0 = time.time()
+        test_text = model.embed(test_text)
+        logger.info(f'SVM test embeddings {m_name} done in {(time.time() - t0):8.2f} seconds')
+
+        t0 = time.time()
+        y_pred = _partition_svm(labeler, train_texts, train_labels, test_text, y_true)
+        logger.info(f'SVM model {m_name} predict done in {(time.time() - t0):8.2f} seconds')
+
+        t0 = time.time()
+        logger.info(f'Computing metrics')
+        metrics = Metrics(f'svm_{m_name}_{args.collection}{suffix}', labeler.get_type_code())
+        metrics(y_true, y_pred, 'test/', 0.5)
+        meta = {'num_samples': np.shape(y_true)[0], 'num_labels': np.shape(y_true)[1]}
+        metrics.dump(args.data_result_dir, meta, None, 100)
+        logger.info(f'Computation done in {(time.time() - t0):8.2f} seconds')
     return 0
-
 
 
 def bl_logreg(args):
@@ -524,6 +421,8 @@ def bl_logreg(args):
     train_data_as_dicts, train_df = load_data(args, args.collection + '_train')  # we load the train data
     test_data_as_dicts, test_df = load_data(args, args.collection + '_test')  # we load the test data
 
+    models = EmbeddingModelWrapperFactory.init_models(args)
+
     suffix = ''
     target_labels = None
     if args.test_l_class != 'all':
@@ -531,56 +430,52 @@ def bl_logreg(args):
         label_classes = load_labels(args.data_in_dir, args.collection, __label_splits, __label_split_names)
         target_labels = label_classes[args.test_l_class]
 
-    instance_counts, label_counts = _count_labels(target_labels, train_df)
-    target_data = _filter_samples(target_labels, train_data_as_dicts)
+    instance_counts, label_counts = _count_labels(target_labels, train_df['label'].tolist())
+    filtered_data, filtered_labels = _filter_samples(target_labels, train_data_as_dicts)
 
-    labeler = MultilabelLabeler(list(label_counts.keys()))
+    valid_labels = list(label_counts.keys())
+    labeler = MultilabelLabeler(valid_labels)
     labeler.fit()
+    logger.info(f'Computed labels in {(time.time() - t0):8.2f} seconds')
 
-    train_texts = [x['text'] for x in target_data]
-    train_labels = [x['label'] for x in target_data]
+    train_texts = [x['text'] for x in filtered_data]
+    logger.info(f'Computed data {len(train_texts)} samples and {len(labeler.encoder.classes_)}')
 
-    from sklearn.multioutput import MultiOutputClassifier
-    from cuml.linear_model import LogisticRegression
-
-    tfidf = TfidfVectorizer(max_features=10000)
-
-    train_texts = tfidf.fit_transform(train_texts)
-    train_labels = labeler.vectorize(train_labels)
+    train_labels = labeler.vectorize(filtered_labels)
     zero_label_cols = np.where(np.sum(train_labels, axis=0) == 0)[0]
     logger.info(f'Missing labels {zero_label_cols}')
 
-    logger.info(f'SVM train start in {(time.time() - t0):8.2f} seconds')
-    t0 = time.time()
-    clf = MultiOutputClassifier(LogisticRegression())
-    clf.fit(train_texts, train_labels)
-    logger.info(f'SVM train done in {(time.time() - t0):8.2f} seconds')
-    y_true = []
-    y_pred = []
-    t1 = time.time()
-    for data in test_data_as_dicts:
-        true_labels = data['label']
-        if target_labels:
-            true_labels = [item for item in true_labels if item in target_labels]
-        if not true_labels:
-            continue
-        test_text = tfidf.transform(data['text'])
-        y_true_i = labeler.vectorize(true_labels)
-        logger.info(f'Dim true {y_true_i.shape}')
-        y_true.append(y_true_i)
-        #test_text = test_text.todense()
-        #test_text = cp.array(test_text)
-        y_pred_i = clf.predict(test_text)
-        #y_pred_i = cp.asnumpy(y_pred_i)
-        logger.info(f'Dim pred {y_pred_i.shape}')
-        y_pred.append(y_pred_i)
+    test_data, test_labels = _filter_samples(valid_labels, test_data_as_dicts)
+    test_text = [x['text'] for x in test_data]
+    y_true = labeler.vectorize(test_labels)
 
-    metrics = Metrics(f'bl_logreg_{args.collection}{suffix}', labeler.get_type_code())
+    from sklearn.multioutput import MultiOutputClassifier
+    from cuml.linear_model import LogisticRegression
+    for m_name, model in models.items():
+        if m_name == 'tfidf':
+            model.fit(train_texts)
+        t0 = time.time()
+        train_texts = model.embed(train_texts)
+        logger.info(f'Train embeddings {m_name} done in {(time.time() - t0):8.2f} seconds')
 
-    logger.info(f'Computing metrics')
-    y_true_m, y_pred_m = filter_metrics(args, labeler, y_true, y_pred)
-    metrics(y_true_m, y_pred_m, 'test/', 0.5)
-    meta = {'num_samples': np.shape(y_true_m)[0], 'num_labels': np.shape(y_true_m)[1]}
-    metrics.dump(args.data_result_dir, meta, None, 100)
-    logger.info(f'Computation done in {(time.time() - t1):8.2f} seconds')
+        t0 = time.time()
+        test_text = model.embed(test_text)
+        logger.info(f'Test embeddings {m_name} done in {(time.time() - t0):8.2f} seconds')
+
+        t0 = time.time()
+        clf = MultiOutputClassifier(LogisticRegression())
+        clf.fit(train_texts, train_labels)
+        logger.info(f'LogReg model {m_name} train done in {(time.time() - t0):8.2f} seconds')
+
+        t0 = time.time()
+        y_pred = clf.predict(test_text)
+        logger.info(f'LogReg model {m_name} predict done in {(time.time() - t0):8.2f} seconds')
+
+        metrics = Metrics(f'logreg_{m_name}_{args.collection}{suffix}', labeler.get_type_code())
+        t1 = time.time()
+        logger.info(f'LogReg computing {m_name} metrics')
+        metrics(y_true, y_pred, 'test/', 0.5)
+        meta = {'num_samples': np.shape(y_true)[0], 'num_labels': np.shape(y_true)[1]}
+        metrics.dump(args.data_result_dir, meta, None, 100)
+        logger.info(f'LogReg computation for {m_name} done in {(time.time() - t1):8.2f} seconds')
     return 0
