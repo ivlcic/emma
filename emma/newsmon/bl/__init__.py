@@ -298,7 +298,7 @@ def _filter_samples(target_labels, data: List[Dict[str, Any]]) -> Tuple[List[Dic
 
 def _partition_svm(labeler, train_texts, train_labels, x_test, y_true) -> np.ndarray:
     """
-    GPU poor
+    GPU poor; Split labels into batches of 200ish (column-wise) and merge columns back for complete eval.
     """
     from sklearn.multioutput import MultiOutputClassifier
     from cuml.svm import SVC
