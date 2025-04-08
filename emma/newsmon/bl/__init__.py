@@ -298,16 +298,16 @@ def _filter_samples(target_labels, data: List[Dict[str, Any]]) -> Tuple[List[Dic
 
 def _partition_svm(labeler, train_texts, train_labels, x_test, y_true) -> np.ndarray:
     """
-    F**k my GPU poor life
+    GPU poor
     """
     from sklearn.multioutput import MultiOutputClassifier
     from cuml.svm import SVC
 
     y_pred = []
-    # Split labels into batches of 300 (column-wise)
-    bs = 65  # freq-eurlex
-    bs = 50  # freq-newsmon
-    #bs = 240
+    # Split labels into batches of 200ish (column-wise)
+    #bs = 65  # freq-eurlex
+    #bs = 50  # freq-newsmon
+    bs = 240
     labels = labeler.encoder.classes_
     assert y_true.shape[0] == x_test.shape[0]
     assert y_true.shape[1] == len(labels)
