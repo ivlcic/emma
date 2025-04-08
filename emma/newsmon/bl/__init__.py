@@ -314,14 +314,9 @@ def _partition_svm(labeler, train_texts, train_labels, x_test, y_true) -> np.nda
 
     for i in range(0, len(labels), bs):
         train_labels_batch = train_labels[:, i:i + bs]
-        # Row-wise cleanup
-        #sample_mask = np.array(train_labels_batch.sum(axis=1) > 0).flatten()
-        #X_batch = train_texts[sample_mask]
-        #y_batch = train_labels_batch[sample_mask]
-        # No Row-wise cleanup
         X_batch = train_texts
         y_batch = train_labels_batch
-        # Check for empty labels in this batch
+        # Assert for empty labels in this batch
         zero_in_batch = np.where(np.sum(y_batch, axis=0) == 0)[0]
         if zero_in_batch.size > 0:
             logger.warning(f'Batch {i // bs} has zero columns: {zero_in_batch}')
