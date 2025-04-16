@@ -524,7 +524,7 @@ def bl_logreg_search(args):
         #'clf__estimator__C': [10, 100, 1000]
         #'clf__estimator__C': [1000, 10000, 100000]
         #'clf__estimator__C': [2000, 3000, 5000]
-        'clf__estimator__C': [0.1, 1, 10, 100, 500, 1000, 2000, 10000]
+        'clf__estimator__C': [0.1, 1, 10, 100, 500, 1000, 2000, 5000, 10000]
     }
 
     validation_idx = len(train_texts) - len(dev_data_as_dicts)
