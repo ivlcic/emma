@@ -180,6 +180,21 @@ def load_labels(split_dir, corpus: str, splits: List[int], names: List[str]) -> 
     return {}
 
 
+def filter_samples(target_labels, data: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[List[str]]]:
+    data_as_dicts = []
+    data_labels = []
+    for d in data:
+        labels = d['label']
+        if target_labels:
+            labels = [item for item in labels if item in target_labels]
+        if not labels:
+            continue
+        d['label'] = labels
+        data_as_dicts.append(d)
+        data_labels.append(labels)
+    return data_as_dicts, data_labels
+
+
 # noinspection DuplicatedCode
 def filter_metrics(args, labeler: Labeler, y_true: Union[List, np.ndarray], y_prob: Union[List, np.ndarray]):
     if isinstance(y_true, List):

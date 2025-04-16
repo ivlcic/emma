@@ -14,7 +14,8 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from ..const import __supported_languages, __label_split_names, __label_splits
 from ..embd_model import EmbeddingModelWrapperFactory, EmbeddingModelWrapper
 from ..model_data import ModelTestData
-from ..utils import compute_arg_collection_name, get_index_path, load_data, init_labeler, filter_metrics, load_labels
+from ..utils import compute_arg_collection_name, get_index_path, load_data, init_labeler, filter_metrics, load_labels, \
+    filter_samples
 from ...core.args import CommonArguments
 from ...core.labels import Labeler, MultilabelLabeler
 from ...core.metrics import Metrics
@@ -281,21 +282,6 @@ def _count_labels(target_labels, data: List[List[str]]):
     return instance_counts, label_counts
 
 
-def _filter_samples(target_labels, data: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[List[str]]]:
-    data_as_dicts = []
-    data_labels = []
-    for d in data:
-        labels = d['label']
-        if target_labels:
-            labels = [item for item in labels if item in target_labels]
-        if not labels:
-            continue
-        d['label'] = labels
-        data_as_dicts.append(d)
-        data_labels.append(labels)
-    return data_as_dicts, data_labels
-
-
 def _partition_svm(labeler, train_texts, train_labels, x_test, y_true) -> np.ndarray:
     """
     GPU poor; Split labels into batches of 200ish (column-wise) and merge columns back for complete eval.
@@ -361,7 +347,7 @@ def bl_svm(args):
         target_labels = label_classes[args.test_l_class]
 
     instance_counts, label_counts = _count_labels(target_labels, train_df['label'].tolist())
-    filtered_data, filtered_labels = _filter_samples(target_labels, train_data_as_dicts)
+    filtered_data, filtered_labels = filter_samples(target_labels, train_data_as_dicts)
 
     valid_labels = list(label_counts.keys())
     labeler = MultilabelLabeler(valid_labels)
@@ -375,7 +361,7 @@ def bl_svm(args):
     zero_label_cols = np.where(np.sum(train_labels, axis=0) == 0)[0]
     logger.info(f'Missing labels {zero_label_cols}')
 
-    test_data, test_labels = _filter_samples(valid_labels, test_data_as_dicts)
+    test_data, test_labels = filter_samples(valid_labels, test_data_as_dicts)
     test_text = [x['text'] for x in test_data]
     y_true = labeler.vectorize(test_labels)
 
@@ -412,6 +398,7 @@ def bl_logreg(args):
     ./newsmon bl logreg -c newsmon -l sl --public --test_l_class Frequent
     """
     t0 = time.time()
+    args.tfidf_max_df = 0.8  # from grid search
     compute_arg_collection_name(args)
     train_data_as_dicts, train_df = load_data(args, args.collection + '_train')  # we load the train data
     test_data_as_dicts, test_df = load_data(args, args.collection + '_test')  # we load the test data
@@ -426,7 +413,7 @@ def bl_logreg(args):
         target_labels = label_classes[args.test_l_class]
 
     instance_counts, label_counts = _count_labels(target_labels, train_df['label'].tolist())
-    filtered_data, filtered_labels = _filter_samples(target_labels, train_data_as_dicts)
+    filtered_data, filtered_labels = filter_samples(target_labels, train_data_as_dicts)
 
     valid_labels = list(label_counts.keys())
     labeler = MultilabelLabeler(valid_labels)
@@ -440,7 +427,7 @@ def bl_logreg(args):
     zero_label_cols = np.where(np.sum(train_labels, axis=0) == 0)[0]
     logger.info(f'Missing labels {zero_label_cols}')
 
-    test_data, test_labels = _filter_samples(valid_labels, test_data_as_dicts)
+    test_data, test_labels = filter_samples(valid_labels, test_data_as_dicts)
     test_text = [x['text'] for x in test_data]
     y_true = labeler.vectorize(test_labels)
 
@@ -458,7 +445,7 @@ def bl_logreg(args):
         logger.info(f'Test embeddings {m_name} done in {(time.time() - t0):8.2f} seconds')
 
         t0 = time.time()
-        clf = MultiOutputClassifier(LogisticRegression())
+        clf = MultiOutputClassifier(LogisticRegression(C=1000))
         clf.fit(train_texts, train_labels)
         logger.info(f'LogReg model {m_name} train done in {(time.time() - t0):8.2f} seconds')
 
@@ -473,4 +460,100 @@ def bl_logreg(args):
         meta = {'num_samples': np.shape(y_true)[0], 'num_labels': np.shape(y_true)[1]}
         metrics.dump(args.data_result_dir, meta, None, 100)
         logger.info(f'LogReg computation for {m_name} done in {(time.time() - t1):8.2f} seconds')
+    return 0
+
+
+def bl_logreg_search(args):
+    """
+    Baseline Logistic Regression TF-IDF classifier grid search.
+    ./newsmon bl logreg_search -c newsmon -l sl --public
+    ./newsmon bl logreg_search -c newsmon -l sl --public --test_l_class Rare
+    ./newsmon bl logreg_search -c newsmon -l sl --public --test_l_class Frequent
+    """
+    t0 = time.time()
+    compute_arg_collection_name(args)
+    train_data_as_dicts, train_df = load_data(args, args.collection + '_train')  # we load the train data
+    dev_data_as_dicts, dev_df = load_data(args, args.collection + '_dev')  # we load the dev data
+    train_data_as_dicts.extend(dev_data_as_dicts)
+    test_data_as_dicts, test_df = load_data(args, args.collection + '_test')  # we load the test data
+
+    target_labels = None
+    if args.test_l_class != 'all':
+        label_classes = load_labels(args.data_in_dir, args.collection, __label_splits, __label_split_names)
+        target_labels = label_classes[args.test_l_class]
+
+    instance_counts, label_counts = _count_labels(target_labels, train_df['label'].tolist())
+    if target_labels == None:
+        target_labels = [k for k, v in label_counts.items() if v > 1]
+
+    filtered_data, filtered_labels = filter_samples(target_labels, train_data_as_dicts)
+
+    labeler = MultilabelLabeler(target_labels)
+    labeler.fit()
+    logger.info(f'Computed labels in {(time.time() - t0):8.2f} seconds')
+
+    train_texts = [x['text'] for x in filtered_data]
+    logger.info(f'Computed data {len(train_texts)} samples and {len(labeler.encoder.classes_)}')
+
+    train_labels = labeler.vectorize(filtered_labels)
+    small_label_cols = np.where(np.sum(train_labels, axis=0) < 1)[0]
+    logger.info(f'Small num labels {len(small_label_cols)}')
+
+    test_data, test_labels = filter_samples(target_labels, test_data_as_dicts)
+    test_text = [x['text'] for x in test_data]
+    y_test = labeler.vectorize(test_labels)
+
+    from sklearn.multioutput import MultiOutputClassifier
+    from cuml.linear_model import LogisticRegression
+    from sklearn.pipeline import Pipeline
+    from sklearn.model_selection import PredefinedSplit
+    from sklearn.model_selection import GridSearchCV
+    from sklearn.metrics import accuracy_score
+    #from sklearn.linear_model import LogisticRegression
+    pipeline = Pipeline([
+        ('tfidf', TfidfVectorizer(max_features=10000)),
+        ('clf', MultiOutputClassifier(LogisticRegression(max_iter=2000)))
+    ])
+
+    # Define parameter grid for GridSearchCV
+    param_grid = {
+        #'tfidf__max_df': [0.7, 0.8, 0.9, 1.0],
+        'tfidf__max_df': [0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+        #'tfidf__ngram_range': [(1, 1), (1, 2)],
+        # 'clf__estimator__C': [0.1, 1, 10]
+        #'clf__estimator__C': [10, 100, 1000]
+        #'clf__estimator__C': [1000, 10000, 100000]
+        #'clf__estimator__C': [2000, 3000, 5000]
+        'clf__estimator__C': [0.1, 1, 10, 100, 500, 1000, 2000, 10000]
+    }
+
+    validation_idx = len(train_texts) - len(dev_data_as_dicts)
+    train_end_idx = len(train_texts) - 1
+
+    # Initialize GridSearchCV
+    grid_search = GridSearchCV(
+        pipeline,
+        param_grid=param_grid,
+        scoring='f1_micro',  # You can use 'f1_micro', 'f1_macro', or 'accuracy'
+        # disable cross validation
+        cv=PredefinedSplit(
+            np.concatenate(
+                [
+                    -np.ones(validation_idx, dtype=int),
+                    np.zeros(train_end_idx - validation_idx, dtype=int)
+                ]
+            )
+        ),
+        verbose=3,
+        n_jobs=1
+    )
+
+    # Fit grid search
+    grid_search.fit(train_texts, train_labels)
+
+    # Predict and evaluate
+    y_pred = grid_search.predict(test_text)
+    print("Best parameters:", grid_search.best_params_)
+    print("Subset Accuracy:", accuracy_score(y_test, y_pred))
+
     return 0

@@ -18,12 +18,16 @@ groups = [
 ]
 all_groups = set(itertools.chain.from_iterable(groups))
 
-# Extract the zip file
-with zipfile.ZipFile(new_zip_path, 'r') as zip_ref:
-    zip_ref.extractall(new_extracted_folder_path)
+if os.path.exists(new_zip_path):
+    # Extract the zip file
+    with zipfile.ZipFile(new_zip_path, 'r') as zip_ref:
+        zip_ref.extractall(new_extracted_folder_path)
 
 # List all JSON files in the extracted folder
-new_json_files = [os.path.join(new_extracted_folder_path, file) for file in os.listdir(new_extracted_folder_path) if file.endswith('.json')]
+new_json_files = [
+    os.path.join(new_extracted_folder_path, file)
+    for file in os.listdir(new_extracted_folder_path) if file.endswith('.json')
+]
 
 # Merge JSON content
 new_merged_data = []
@@ -96,9 +100,10 @@ new_df = new_df[
     [
         'model_name',
         'micro.f1', 'micro.p', 'micro.r',
+        'acc',
         'macro.f1', 'macro.p', 'macro.r',
         'weighted.f1', 'weighted.p', 'weighted.r',
-        'acc', 'hamming_loss',
+        'hamming_loss',
         'r-p@1', 'r-p@3', 'r-p@5', 'r-p@7', 'r-p@9',
         'p@1', 'p@3', 'p@5', 'p@7', 'p@9', 'r@1',
         'r@3', 'r@5', 'r@7', 'r@9',

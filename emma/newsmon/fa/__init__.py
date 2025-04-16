@@ -15,12 +15,13 @@ from sklearn.metrics import accuracy_score
 from torch import optim, nn
 from tqdm import tqdm
 
-from ..const import __supported_languages, __label_split_names
-from ..embd_model import EmbeddingModelWrapperFactory, EmbeddingModelWrapper
+from ..const import __supported_languages, __label_split_names, __label_splits
+from ..embd_model import EmbeddingModelWrapperFactory, EmbeddingModelWrapper, TFIDF
 from ..mlknn import MLkNN
 from ..model import RaeExt
 from ..model_data import ModelTestData, ModelTestObjective
-from ..utils import compute_arg_collection_name, get_index_path, load_data, chunk_data, init_labeler, filter_metrics
+from ..utils import compute_arg_collection_name, get_index_path, load_data, chunk_data, init_labeler, filter_metrics, \
+    filter_samples, load_labels
 from ...core.args import CommonArguments
 from ...core.labels import Labeler
 from ...core.metrics import Metrics
@@ -707,4 +708,111 @@ def fa_train_rae_sim_ext(args) -> int:
             meta = {'num_samples': np.shape(y_true_m)[0], 'num_labels': np.shape(y_true_m)[1]}
             m_data.metrics.dump(args.data_result_dir, meta, None, 100)
 
+    return 0
+
+
+# noinspection DuplicatedCode
+def fa_test_rae_logreg(args) -> int:
+    """
+    Naive doesn't work
+    ./newsmon fa test_rae_logreg -c newsmon -l sl --public --ptm_models bge_m3,jinav3,gte
+    """
+    compute_arg_collection_name(args)
+    models = EmbeddingModelWrapperFactory.init_models(args)
+    labeler, _ = init_labeler(args)
+
+    method = 'raexmclr'
+    model_data = init_model_data(args, labeler, faiss.METRIC_L2, method, models)
+
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    # subject to grid search
+    # lamb = 0.5
+    batch_size = 384
+    lamb = 1
+    topk = 50  # Number of nearest neighbors to retrieve
+    threshold = 0.5  # Probability to classify as a positive
+    temper = 0.04
+    corpus = args.collection_conf
+    for m_name, m_data in model_data.items():
+        if (corpus in __best_hyper_params and method in __best_hyper_params[corpus]
+                and m_name in __best_hyper_params[corpus][method]):
+            params = __best_hyper_params[corpus][method][m_name]
+            logger.info(f'Processing RAE-XMC distance metrics for {m_name} with optimal hyper-parameters {params}')
+            m_data.set_hyper(params['temperature'], params['top_k'], params['lambda'])
+        else:
+            m_data.set_hyper(temper, topk, lamb)
+
+    train_data_as_dicts, train_df = load_data(args, args.collection + '_train')  # we load the train data
+    test_data_as_dicts, test_df = load_data(args, args.collection + '_test')  # we load the test data
+
+    train_texts = [x['text'] for x in train_data_as_dicts]
+    train_labels = [x['label'] for x in train_data_as_dicts]
+    logger.info(f'Computed train data {len(train_texts)} samples and {len(labeler.encoder.classes_)} labels.')
+
+    test_texts = [x['text'] for x in test_data_as_dicts]
+    logger.info(f'Computed test data {len(test_texts)} samples and {len(labeler.encoder.classes_)} labels.')
+
+    train_labels = labeler.vectorize(train_labels)
+    zero_label_cols = np.where(np.sum(train_labels, axis=0) == 0)[0]
+    logger.info(f'Missing labels {zero_label_cols}')
+    # randomly assign the missing labels (since they are only a few that's not a problem,
+    # but we must keep label space dimensions to align them with other embedding data - for now; we'll fix this later)
+    for col in zero_label_cols:
+        row = np.random.choice(train_labels.shape[0])
+        train_labels[row, col] = 1
+
+    tfidf_model = TFIDF()
+    tfidf_model.fit(train_texts)
+    from sklearn.multioutput import MultiOutputClassifier
+    from cuml.linear_model import LogisticRegression
+
+    t0 = time.time()
+    train_texts = tfidf_model.embed(train_texts)
+    logger.info(f'Train embeddings tfidf done in {(time.time() - t0):8.2f} seconds')
+
+    t0 = time.time()
+    clf = MultiOutputClassifier(LogisticRegression())
+    clf.fit(train_texts, train_labels)
+    logger.info(f'LogReg model tfidf train done in {(time.time() - t0):8.2f} seconds')
+
+    t1 = time.time()
+    for model_name, m_data in model_data.items():
+        logger.info(f'Processing RAE-XMC distance eval for {model_name}')
+        for start_idx in tqdm(range(0, m_data.test_data['count'], batch_size),
+                              desc='Processing RAE-XMC distance eval.'):
+            end_idx = min(start_idx + batch_size, m_data.test_data['count'])
+            query_vectors = m_data.test_data['x'][start_idx:end_idx]
+            yl_true = m_data.test_data['y_true'][start_idx:end_idx]
+
+            # Search for the topk nearest neighbors for all query vectors in the batch
+            # noinspection PyArgumentList
+            sim, indices = m_data.index.search(query_vectors, m_data.top_k)  # Batched search
+            sim = torch.from_numpy(sim).to(device)
+            # Convert similarities to probability distribution using softmax
+            sim = F.softmax(-torch.sqrt(sim) / m_data.temperature, dim=-1)
+            # Initialize qKT tensor for the batch
+            qkt = torch.zeros((end_idx - start_idx, m_data.k_dim), dtype=torch.float32).to(device)
+            # Assign values to specific indices for each item in the batch
+            for i in range(end_idx - start_idx):
+                qkt[i, indices[i]] = sim[i]
+
+            yl_prob = torch.matmul(qkt, m_data.values).cpu().numpy()
+            x_test_tfidf = tfidf_model.embed(test_texts[start_idx:end_idx])
+            yl_reg_prob = clf.predict(x_test_tfidf)
+
+            mask = (yl_prob > threshold) & (yl_reg_prob)  # keep only true predictions where both are TP
+            yl_prob = np.where(mask, np.maximum(yl_prob, yl_reg_prob), 0)  # keep ony greater one
+
+            m_data.y_pred.extend(yl_prob)
+            m_data.y_true.extend(yl_true)
+
+    logger.info(f'Measured performance in {(time.time() - t1):8.2f} seconds')
+    logger.info(f'Computing metrics')
+    for model_name, m_data in model_data.items():
+        logger.info(f'Processing RAE-XMC LogReg metrics for {model_name}')
+        y_true_m, y_pred_m = filter_metrics(args, labeler, m_data.y_true, m_data.y_pred)
+        m_data.metrics(y_true_m, y_pred_m, 'test/', threshold)
+        meta = {'num_samples': np.shape(y_true_m)[0], 'num_labels': np.shape(y_true_m)[1]}
+        m_data.metrics.dump(args.data_result_dir, meta, None, 100)
+    logger.info(f'Computation done in {(time.time() - t1):8.2f} seconds')
     return 0

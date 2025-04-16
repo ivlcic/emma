@@ -77,9 +77,9 @@ class BgeM3(EmbeddingModelWrapper):
 
 class TFIDF(EmbeddingModelWrapper):
 
-    def __init__(self):
+    def __init__(self, max_df=1.0):
         super(TFIDF, self).__init__('tfidf', 'sklearn.feature_extraction.text.TfidfVectorizer')
-        self.model = TfidfVectorizer(max_features=10000)
+        self.model = TfidfVectorizer(max_features=10000, max_df=max_df)
 
     def fit(self, train_text: List[str]):
         self.model.fit(train_text)
@@ -110,5 +110,7 @@ class EmbeddingModelWrapperFactory:
             if ptm_name == 'gte':
                 models[ptm_name] = Gte()
             if ptm_name == 'tfidf':
-                models[ptm_name] = TFIDF()
+                if 'tfidf_max_df' not in args or not args.tfidf_max_df:
+                    args.tfidf_max_df = 1.0
+                models[ptm_name] = TFIDF(max_df=args.tfidf_max_df)
         return models

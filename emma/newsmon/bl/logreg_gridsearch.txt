@@ -1,0 +1,59 @@
+s2025-04-16 15:24:02 [INFO]  newsmon.bl [499]: Small num labels 0
+Fitting 1 folds for each of 6 candidates, totalling 6 fits
+[CV 1/1] END clf__estimator__C=0.1, tfidf__max_df=0.9;, score=0.124 total time= 1.6min
+[CV 1/1] END clf__estimator__C=0.1, tfidf__max_df=1.0;, score=0.124 total time= 1.6min
+[CV 1/1] END clf__estimator__C=1, tfidf__max_df=0.9;, score=0.396 total time= 1.8min
+[CV 1/1] END clf__estimator__C=1, tfidf__max_df=1.0;, score=0.396 total time= 1.8min
+[CV 1/1] END clf__estimator__C=10, tfidf__max_df=0.9;, score=0.603 total time= 2.3min
+[CV 1/1] END clf__estimator__C=10, tfidf__max_df=1.0;, score=0.603 total time= 2.4min
+Best parameters: {'clf__estimator__C': 10, 'tfidf__max_df': 1.0}
+Subset Accuracy: 0.41922773837667454
+Fitting 1 folds for each of 12 candidates, totalling 12 fits
+[CV 1/1] END clf__estimator__C=10, tfidf__max_df=0.7;, score=0.607 total time= 2.3min
+[CV 1/1] END clf__estimator__C=10, tfidf__max_df=0.8;, score=0.606 total time= 2.3min
+[CV 1/1] END clf__estimator__C=10, tfidf__max_df=0.9;, score=0.603 total time= 2.3min
+[CV 1/1] END clf__estimator__C=10, tfidf__max_df=1.0;, score=0.603 total time= 2.4min
+[CV 1/1] END clf__estimator__C=100, tfidf__max_df=0.7;, score=0.662 total time= 2.9min
+[CV 1/1] END clf__estimator__C=100, tfidf__max_df=0.8;, score=0.662 total time= 2.9min
+[CV 1/1] END clf__estimator__C=100, tfidf__max_df=0.9;, score=0.663 total time= 3.0min
+[CV 1/1] END clf__estimator__C=100, tfidf__max_df=1.0;, score=0.663 total time= 3.0min
+[CV 1/1] END clf__estimator__C=1000, tfidf__max_df=0.7;, score=0.668 total time= 3.4min
+[CV 1/1] END clf__estimator__C=1000, tfidf__max_df=0.8;, score=0.669 total time= 3.4min
+[CV 1/1] END clf__estimator__C=1000, tfidf__max_df=0.9;, score=0.669 total time= 3.6min
+[CV 1/1] END clf__estimator__C=1000, tfidf__max_df=1.0;, score=0.669 total time= 3.5min
+Best parameters: {'clf__estimator__C': 1000, 'tfidf__max_df': 0.8}
+Subset Accuracy: 0.4641449960598897
+Fitting 1 folds for each of 12 candidates, totalling 12 fits
+[CV 1/1] END clf__estimator__C=1000, tfidf__max_df=0.7;, score=0.668 total time= 3.3min
+[CV 1/1] END clf__estimator__C=1000, tfidf__max_df=0.8;, score=0.669 total time= 3.4min
+[CV 1/1] END clf__estimator__C=1000, tfidf__max_df=0.9;, score=0.669 total time= 3.5min
+[CV 1/1] END clf__estimator__C=1000, tfidf__max_df=1.0;, score=0.669 total time= 3.5min
+[CV 1/1] END clf__estimator__C=10000, tfidf__max_df=0.7;, score=0.668 total time= 3.6min
+[CV 1/1] END clf__estimator__C=10000, tfidf__max_df=0.8;, score=0.668 total time= 3.6min
+[CV 1/1] END clf__estimator__C=10000, tfidf__max_df=0.9;, score=0.668 total time= 3.6min
+[CV 1/1] END clf__estimator__C=10000, tfidf__max_df=1.0;, score=0.668 total time= 3.7min
+[2025-04-16 17:06:13.074] [CUML] [warning] L-BFGS: max iterations reached
+[2025-04-16 17:06:13.074] [CUML] [warning] Maximum iterations reached before solver is converged. To increase model accuracy you can increase the number of iterations (max_iter) or improve the scaling of the input data.
+[CV 1/1] END clf__estimator__C=100000, tfidf__max_df=0.7;, score=0.668 total time= 3.1min
+[CV 1/1] END clf__estimator__C=100000, tfidf__max_df=0.8;, score=0.668 total time= 3.2min
+[CV 1/1] END clf__estimator__C=100000, tfidf__max_df=0.9;, score=0.667 total time= 3.3min
+[2025-04-16 17:15:55.786] [CUML] [warning] L-BFGS: max iterations reached
+[2025-04-16 17:15:55.786] [CUML] [warning] Maximum iterations reached before solver is converged. To increase model accuracy you can increase the number of iterations (max_iter) or improve the scaling of the input data.
+[CV 1/1] END clf__estimator__C=100000, tfidf__max_df=1.0;, score=0.668 total time= 3.4min
+Best parameters: {'clf__estimator__C': 1000, 'tfidf__max_df': 0.8}
+Subset Accuracy: 0.4651300236406619
+Fitting 1 folds for each of 12 candidates, totalling 12 fits
+[CV 1/1] END clf__estimator__C=2000, tfidf__max_df=0.7;, score=0.669 total time= 8.5min
+[CV 1/1] END clf__estimator__C=2000, tfidf__max_df=0.8;, score=0.669 total time= 5.2min
+[CV 1/1] END clf__estimator__C=2000, tfidf__max_df=0.9;, score=0.669 total time= 3.7min
+[CV 1/1] END clf__estimator__C=2000, tfidf__max_df=1.0;, score=0.669 total time= 3.6min
+[CV 1/1] END clf__estimator__C=3000, tfidf__max_df=0.7;, score=0.668 total time= 3.4min
+[CV 1/1] END clf__estimator__C=3000, tfidf__max_df=0.8;, score=0.669 total time= 4.5min
+[CV 1/1] END clf__estimator__C=3000, tfidf__max_df=0.9;, score=0.669 total time= 3.7min
+[CV 1/1] END clf__estimator__C=3000, tfidf__max_df=1.0;, score=0.669 total time= 3.6min
+[CV 1/1] END clf__estimator__C=5000, tfidf__max_df=0.7;, score=0.668 total time= 3.4min
+[CV 1/1] END clf__estimator__C=5000, tfidf__max_df=0.8;, score=0.668 total time= 3.5min
+[CV 1/1] END clf__estimator__C=5000, tfidf__max_df=0.9;, score=0.669 total time= 3.6min
+[CV 1/1] END clf__estimator__C=5000, tfidf__max_df=1.0;, score=0.669 total time= 3.7min
+Best parameters: {'clf__estimator__C': 3000, 'tfidf__max_df': 1.0}
+Subset Accuracy: 0.464736012608353
