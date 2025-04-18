@@ -62,6 +62,12 @@ def add_args(module_name: str, parser: ArgumentParser) -> None:
         type=str,
         default='tfidf'
     )
+    parser.add_argument(
+        '--svm_kernel',
+        help=f'Use svm_kernel for SVM grid search. rbf or linear. ',
+        type=str,
+        default='rbf'
+    )
 
 
 # noinspection DuplicatedCode
@@ -282,7 +288,7 @@ def _count_labels(target_labels, data: List[List[str]]):
     return instance_counts, label_counts
 
 
-def _partition_svm(labeler, train_texts, train_labels, x_test, y_true) -> np.ndarray:
+def _partition_svm(C, gamma, labeler, train_texts, train_labels, x_test, y_true) -> np.ndarray:
     """
     GPU poor; Split labels into batches of 200ish (column-wise) and merge columns back for complete eval.
     """
@@ -310,7 +316,7 @@ def _partition_svm(labeler, train_texts, train_labels, x_test, y_true) -> np.nda
         t1 = time.time()
         # Train batch classifier
         batch_clf = MultiOutputClassifier(
-            SVC(kernel='rbf', C=1.0, gamma='scale', verbose=True),
+            SVC(kernel='rbf', C=C, gamma=gamma, verbose=True),
         )
         batch_clf.fit(X_batch, y_batch)
         logger.warning(f'Train of batch [{y_batch.shape}][{i},{(i + bs)}] done in {(time.time() - t1):8.2f} seconds')
@@ -333,6 +339,14 @@ def bl_svm(args):
     ./newsmon bl svm -c newsmon -l sl --public --test_l_class Frequent
     """
     t0 = time.time()
+
+    args.tfidf_max_df = 0.8  # from grid search
+    theC = 10000
+    theGamma = 0.001
+    if 'eurlex' in args.collection:
+        args.tfidf_max_df = 0.8  # from grid search
+        theC = 100
+
     compute_arg_collection_name(args)
     train_data_as_dicts, train_df = load_data(args, args.collection + '_train')  # we load the train data
     test_data_as_dicts, test_df = load_data(args, args.collection + '_test')  # we load the test data
@@ -377,7 +391,7 @@ def bl_svm(args):
         logger.info(f'SVM test embeddings {m_name} done in {(time.time() - t0):8.2f} seconds')
 
         t0 = time.time()
-        y_pred = _partition_svm(labeler, train_texts, train_labels, test_text, y_true)
+        y_pred = _partition_svm(theC, theGamma, labeler, train_texts, train_labels, test_text, y_true)
         logger.info(f'SVM model {m_name} predict done in {(time.time() - t0):8.2f} seconds')
 
         t0 = time.time()
@@ -399,6 +413,11 @@ def bl_logreg(args):
     """
     t0 = time.time()
     args.tfidf_max_df = 0.8  # from grid search
+    theC = 1000
+    if 'eurlex' in args.collection:
+        args.tfidf_max_df = 0.8  # from grid search
+        theC = 100
+    logger.info(f'Using C:{theC} and max doc freq. for terms {args.tfidf_max_df}')
     compute_arg_collection_name(args)
     train_data_as_dicts, train_df = load_data(args, args.collection + '_train')  # we load the train data
     test_data_as_dicts, test_df = load_data(args, args.collection + '_test')  # we load the test data
@@ -445,7 +464,8 @@ def bl_logreg(args):
         logger.info(f'Test embeddings {m_name} done in {(time.time() - t0):8.2f} seconds')
 
         t0 = time.time()
-        clf = MultiOutputClassifier(LogisticRegression(C=1000))
+        #clf = MultiOutputClassifier(LogisticRegression(C=1000))
+        clf = MultiOutputClassifier(LogisticRegression(C=100))
         clf.fit(train_texts, train_labels)
         logger.info(f'LogReg model {m_name} train done in {(time.time() - t0):8.2f} seconds')
 
@@ -550,6 +570,121 @@ def bl_logreg_search(args):
 
     # Fit grid search
     grid_search.fit(train_texts, train_labels)
+
+    # Predict and evaluate
+    y_pred = grid_search.predict(test_text)
+    print("Best parameters:", grid_search.best_params_)
+    print("Subset Accuracy:", accuracy_score(y_test, y_pred))
+
+    return 0
+
+
+def bl_svm_search(args):
+    """
+    Baseline SVM TF-IDF classifier grid search.
+    ./newsmon bl svm_search -c newsmon -l sl --public
+    ./newsmon bl svm_search -c newsmon -l sl --public --test_l_class Rare
+    ./newsmon bl svm_search -c newsmon -l sl --public --test_l_class Frequent
+    """
+    t0 = time.time()
+    compute_arg_collection_name(args)
+    train_data_as_dicts, train_df = load_data(args, args.collection + '_train')  # we load the train data
+    dev_data_as_dicts, dev_df = load_data(args, args.collection + '_dev')  # we load the dev data
+    train_data_as_dicts.extend(dev_data_as_dicts)
+    test_data_as_dicts, test_df = load_data(args, args.collection + '_test')  # we load the test data
+
+    target_labels = None
+    if args.test_l_class != 'all':
+        label_classes = load_labels(args.data_in_dir, args.collection, __label_splits, __label_split_names)
+        target_labels = label_classes[args.test_l_class]
+
+    instance_counts, label_counts = _count_labels(target_labels, train_df['label'].tolist())
+    if target_labels == None:
+        target_labels = [k for k, v in label_counts.items() if v > 1]
+
+    filtered_data, filtered_labels = filter_samples(target_labels, train_data_as_dicts)
+
+    labeler = MultilabelLabeler(target_labels)
+    labeler.fit()
+    logger.info(f'Computed labels in {(time.time() - t0):8.2f} seconds')
+
+    train_texts = [x['text'] for x in filtered_data]
+    logger.info(f'Computed data {len(train_texts)} samples and {len(labeler.encoder.classes_)}')
+
+    train_labels = labeler.vectorize(filtered_labels)
+    small_label_cols = np.where(np.sum(train_labels, axis=0) < 1)[0]
+    logger.info(f'Small num labels {len(small_label_cols)}')
+
+    test_data, test_labels = filter_samples(target_labels, test_data_as_dicts)
+    test_text = [x['text'] for x in test_data]
+    y_test = labeler.vectorize(test_labels)
+
+    from sklearn.multioutput import MultiOutputClassifier
+    from sklearn.pipeline import Pipeline
+    from sklearn.model_selection import PredefinedSplit
+    from sklearn.model_selection import GridSearchCV
+    from sklearn.metrics import accuracy_score
+    from cuml.svm import SVC
+    from cuml.svm import LinearSVC
+
+
+    # Define parameter grid for GridSearchCV
+    if args.svm_kernel == 'rbf':
+        # we take random 200 labels (because of ram problems)
+        col_indices = np.random.choice(train_labels.shape[1], size=200, replace=False)
+        train_labels_batch = train_labels[:, col_indices]
+        param_grid = {
+            'tfidf__max_df': [0.7, 0.8, 0.9, 1.0],
+            'clf__estimator__C': [1, 10, 100, 500, 1000, 2000, 5000, 10000],  # 0.1, 1, is not good - I tested before
+            'clf__estimator__gamma': [1, 0.5, 0.25, 0.1, 0.05, 0.01, 0.001, 'scale'],
+            'clf__estimator__kernel': ['rbf']
+        }
+        pipeline = Pipeline([
+            ('tfidf', TfidfVectorizer(max_features=10000)),
+            ('clf', MultiOutputClassifier(SVC()))
+        ])
+
+        y_test = y_test[:, col_indices]
+    else:
+        param_grid = {
+            'tfidf__max_df': [0.7, 0.8, 0.9, 1.0],
+            'clf__estimator__C': [0.1, 1, 10, 100, 500, 1000, 2000, 5000, 10000],
+            'clf__estimator__kernel': ['linear']
+        }
+        pipeline = Pipeline([
+            ('tfidf', TfidfVectorizer(max_features=10000)),
+            ('clf', MultiOutputClassifier(LinearSVC()))
+        ])
+        train_labels_batch = train_labels
+
+    validation_idx = len(train_texts) - len(dev_data_as_dicts)
+    train_end_idx = len(train_texts) - 1
+
+    # Initialize GridSearchCV
+    grid_search = GridSearchCV(
+        pipeline,
+        param_grid=param_grid,
+        scoring='f1_micro',  # You can use 'f1_micro', 'f1_macro', or 'accuracy'
+        # disable cross validation
+        cv=PredefinedSplit(
+            np.concatenate(
+                [
+                    -np.ones(validation_idx, dtype=int),
+                    np.zeros(train_end_idx - validation_idx, dtype=int)
+                ]
+            )
+        ),
+        verbose=3,
+        n_jobs=1
+    )
+
+    # Assert for empty labels in this batch
+    zero_in_batch = np.where(np.sum(train_labels_batch, axis=0) == 0)[0]
+    if zero_in_batch.size > 0:
+        logger.warning(f'Batch has zero columns: {zero_in_batch}')
+
+    # Fit grid search
+    grid_search.fit(train_texts, train_labels_batch)
 
     # Predict and evaluate
     y_pred = grid_search.predict(test_text)

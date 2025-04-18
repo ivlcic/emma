@@ -57,3 +57,20 @@ Fitting 1 folds for each of 12 candidates, totalling 12 fits
 [CV 1/1] END clf__estimator__C=5000, tfidf__max_df=1.0;, score=0.669 total time= 3.7min
 Best parameters: {'clf__estimator__C': 3000, 'tfidf__max_df': 1.0}
 Subset Accuracy: 0.464736012608353
+
+Eurlex:
+
+[CV 1/1] END clf__estimator__C=5000, tfidf__max_df=0.5;, score=0.713 total time= 5.2min
+[CV 1/1] END clf__estimator__C=5000, tfidf__max_df=0.6;, score=0.714 total time= 5.3min
+[CV 1/1] END clf__estimator__C=5000, tfidf__max_df=0.7;, score=0.714 total time= 5.4min
+[CV 1/1] END clf__estimator__C=5000, tfidf__max_df=0.8;, score=0.715 total time= 5.7min
+[CV 1/1] END clf__estimator__C=5000, tfidf__max_df=0.9;, score=0.715 total time= 6.0min
+[CV 1/1] END clf__estimator__C=5000, tfidf__max_df=1.0;, score=0.716 total time= 7.2min
+[CV 1/1] END clf__estimator__C=10000, tfidf__max_df=0.5;, score=0.711 total time= 5.3min
+[CV 1/1] END clf__estimator__C=10000, tfidf__max_df=0.6;, score=0.711 total time= 5.4min
+[CV 1/1] END clf__estimator__C=10000, tfidf__max_df=0.7;, score=0.711 total time= 5.5min
+[CV 1/1] END clf__estimator__C=10000, tfidf__max_df=0.8;, score=0.712 total time= 5.8min
+[CV 1/1] END clf__estimator__C=10000, tfidf__max_df=0.9;, score=0.712 total time= 6.2min
+[CV 1/1] END clf__estimator__C=10000, tfidf__max_df=1.0;, score=0.713 total time= 7.5min
+Best parameters: {'clf__estimator__C': 100, 'tfidf__max_df': 0.8}
+Subset Accuracy: 0.22863660291279173
