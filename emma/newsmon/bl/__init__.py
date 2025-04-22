@@ -299,7 +299,8 @@ def _partition_svm(C, gamma, labeler, train_texts, train_labels, x_test, y_true)
     # Split labels into batches of 200ish (column-wise)
     #bs = 65  # freq-eurlex
     #bs = 50  # freq-newsmon
-    bs = 240
+    #bs = 50  # freq
+    bs = 240  # other
     labels = labeler.encoder.classes_
     assert y_true.shape[0] == x_test.shape[0]
     assert y_true.shape[1] == len(labels)
@@ -316,7 +317,7 @@ def _partition_svm(C, gamma, labeler, train_texts, train_labels, x_test, y_true)
         t1 = time.time()
         # Train batch classifier
         batch_clf = MultiOutputClassifier(
-            SVC(kernel='rbf', C=C, gamma=gamma, verbose=True),
+            SVC(kernel='rbf', C=C, gamma=gamma),
         )
         batch_clf.fit(X_batch, y_batch)
         logger.warning(f'Train of batch [{y_batch.shape}][{i},{(i + bs)}] done in {(time.time() - t1):8.2f} seconds')
@@ -344,9 +345,11 @@ def bl_svm(args):
     theC = 10000
     theGamma = 0.001
     if 'eurlex' in args.collection:
-        args.tfidf_max_df = 0.8  # from grid search
-        theC = 100
+        args.tfidf_max_df = 1.0  # from grid search
+        theC = 10
+        theGamma = 1.0
 
+    logger.info(f'Using C:{theC} gamma: {theGamma}, and max doc freq. for terms {args.tfidf_max_df}.')
     compute_arg_collection_name(args)
     train_data_as_dicts, train_df = load_data(args, args.collection + '_train')  # we load the train data
     test_data_as_dicts, test_df = load_data(args, args.collection + '_test')  # we load the test data
@@ -366,14 +369,14 @@ def bl_svm(args):
     valid_labels = list(label_counts.keys())
     labeler = MultilabelLabeler(valid_labels)
     labeler.fit()
-    logger.info(f'Computed labels in {(time.time() - t0):8.2f} seconds')
+    logger.info(f'Computed labels in {(time.time() - t0):8.2f} seconds.')
 
     train_texts = [x['text'] for x in filtered_data]
-    logger.info(f'Computed data {len(train_texts)} samples and {len(labeler.encoder.classes_)}')
+    logger.info(f'Computed data {len(train_texts)} samples and {len(labeler.encoder.classes_)} labels.')
 
     train_labels = labeler.vectorize(filtered_labels)
     zero_label_cols = np.where(np.sum(train_labels, axis=0) == 0)[0]
-    logger.info(f'Missing labels {zero_label_cols}')
+    logger.info(f'Missing labels: {zero_label_cols}.')
 
     test_data, test_labels = filter_samples(valid_labels, test_data_as_dicts)
     test_text = [x['text'] for x in test_data]
@@ -384,23 +387,23 @@ def bl_svm(args):
             model.fit(train_texts)
         t0 = time.time()
         train_texts = model.embed(train_texts)
-        logger.info(f'SVM train embeddings {m_name} done in {(time.time() - t0):8.2f} seconds')
+        logger.info(f'SVM train embeddings {m_name} done in {(time.time() - t0):8.2f} seconds.')
 
         t0 = time.time()
         test_text = model.embed(test_text)
-        logger.info(f'SVM test embeddings {m_name} done in {(time.time() - t0):8.2f} seconds')
+        logger.info(f'SVM test embeddings {m_name} done in {(time.time() - t0):8.2f} seconds.')
 
         t0 = time.time()
         y_pred = _partition_svm(theC, theGamma, labeler, train_texts, train_labels, test_text, y_true)
-        logger.info(f'SVM model {m_name} predict done in {(time.time() - t0):8.2f} seconds')
+        logger.info(f'SVM model {m_name} predict done in {(time.time() - t0):8.2f} seconds.')
 
         t0 = time.time()
-        logger.info(f'Computing metrics')
+        logger.info(f'Computing metrics...')
         metrics = Metrics(f'svm_{m_name}_{args.collection}{suffix}', labeler.get_type_code())
         metrics(y_true, y_pred, 'test/', 0.5)
         meta = {'num_samples': np.shape(y_true)[0], 'num_labels': np.shape(y_true)[1]}
         metrics.dump(args.data_result_dir, meta, None, 100)
-        logger.info(f'Computation done in {(time.time() - t0):8.2f} seconds')
+        logger.info(f'Computation done in {(time.time() - t0):8.2f} seconds.')
     return 0
 
 
@@ -417,7 +420,7 @@ def bl_logreg(args):
     if 'eurlex' in args.collection:
         args.tfidf_max_df = 0.8  # from grid search
         theC = 100
-    logger.info(f'Using C:{theC} and max doc freq. for terms {args.tfidf_max_df}')
+    logger.info(f'Using C:{theC} and max doc freq. for terms {args.tfidf_max_df}.')
     compute_arg_collection_name(args)
     train_data_as_dicts, train_df = load_data(args, args.collection + '_train')  # we load the train data
     test_data_as_dicts, test_df = load_data(args, args.collection + '_test')  # we load the test data
@@ -465,7 +468,7 @@ def bl_logreg(args):
 
         t0 = time.time()
         #clf = MultiOutputClassifier(LogisticRegression(C=1000))
-        clf = MultiOutputClassifier(LogisticRegression(C=100))
+        clf = MultiOutputClassifier(LogisticRegression(C=theC))
         clf.fit(train_texts, train_labels)
         logger.info(f'LogReg model {m_name} train done in {(time.time() - t0):8.2f} seconds')
 

@@ -90,9 +90,9 @@ def fa_init_embed(args) -> int:
     inputs: Dict[str: Dict[str, Any]] = {}
     for model_name in models:
         inputs[model_name] = {
-            'train': {'samples': 0, 'y_true': [], 'x': []},
-            'dev': {'samples': 0, 'y_true': [], 'x': []},
-            'test': {'samples': 0, 'y_true': [], 'x': []},
+            'train': {'total_time': 0, 'samples': 0, 'y_true': [], 'x': []},
+            'dev': {'total_time': 0, 'samples': 0, 'y_true': [], 'x': []},
+            'test': {'total_time': 0, 'samples': 0, 'y_true': [], 'x': []},
         }
 
     total = 0
@@ -104,11 +104,17 @@ def fa_init_embed(args) -> int:
             label_v = np.array([labeler.vectorize([d['label']]) for d in chunk])
             label_v = np.squeeze(label_v, axis=1)
             for model_name, model in models.items():
+                t0 = time.time()
                 ret = model.embed(texts)
                 batch_size = ret.shape[0]
+                inputs[model_name][k]['total_time'] += time.time() - t0
                 inputs[model_name][k]['samples'] += batch_size
                 inputs[model_name][k]['x'].append(ret)
                 inputs[model_name][k]['y_true'].append(label_v)
+        for model_name, model in models.items():
+            tt = inputs[model_name][k]["total_time"]
+            ss = inputs[model_name][k]["samples"]
+            logger.info(f'Done IR model {model_name} {k} embeddings {tt:8.2f} seconds of {ss} samples.')
 
     index_path = get_index_path(args)
     for model_name in models:
@@ -285,6 +291,8 @@ def fa_test_rae(args) -> int:
     models = EmbeddingModelWrapperFactory.init_models(args)
     labeler, _ = init_labeler(args)
 
+    test_data_as_dicts, test_df = load_data(args, args.collection + '_test')  # we load the test data
+
     method = 'raexmc'
     model_data = init_model_data(args, labeler, faiss.METRIC_L2, method, models)
 
@@ -312,7 +320,9 @@ def fa_test_rae(args) -> int:
         for start_idx in tqdm(range(0, m_data.test_data['count'], batch_size),
                               desc='Processing RAE-XMC distance eval.'):
             end_idx = min(start_idx + batch_size, m_data.test_data['count'])
-            query_vectors = m_data.test_data['x'][start_idx:end_idx]
+            #query_vectors = m_data.test_data['x'][start_idx:end_idx]
+            test_data_batch = [x['text'] for x in test_data_as_dicts[start_idx:end_idx]]
+            query_vectors = models[model_name].embed(test_data_batch)
             yl_true = m_data.test_data['y_true'][start_idx:end_idx]
 
             # Search for the topk nearest neighbors for all query vectors in the batch
@@ -354,6 +364,7 @@ def fa_test_zshot(args) -> int:
     models = EmbeddingModelWrapperFactory.init_models(args)
     labeler, _ = init_labeler(args)
 
+    test_data_as_dicts, test_df = load_data(args, args.collection + '_test')  # we load the test data
     model_data = init_model_data(args, labeler, faiss.METRIC_L2, 'zshot', models)
 
     batch_size = 384
@@ -396,6 +407,7 @@ def fa_test_mlknn(args) -> int:
     models = EmbeddingModelWrapperFactory.init_models(args)
     labeler, _ = init_labeler(args)
 
+    test_data_as_dicts, test_df = load_data(args, args.collection + '_test')  # we load the test data
     model_data = init_model_data(args, labeler, faiss.METRIC_L2, 'mlknn', models)
 
     def knn_search(mn: str, queries: np.ndarray, k: int):
@@ -425,7 +437,10 @@ def fa_test_mlknn(args) -> int:
         logger.info(f'Processing ML-KNN eval for {model_name}')
         for start_idx in tqdm(range(0, m_data.test_data['count'], batch_size), desc='Processing ML-KNN eval.'):
             end_idx = min(start_idx + batch_size, m_data.test_data['count'])
-            query_vectors = m_data.test_data['x'][start_idx:end_idx]
+            #query_vectors = m_data.test_data['x'][start_idx:end_idx]
+            test_data_batch = [x['text'] for x in test_data_as_dicts[start_idx:end_idx]]
+            query_vectors = models[model_name].embed(test_data_batch)
+
             yl_true = m_data.test_data['y_true'][start_idx:end_idx]
 
             predictions, probabilities = m_data.mlknn.predict(query_vectors)

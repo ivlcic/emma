@@ -260,3 +260,286 @@ Fitting 1 folds for each of 256 candidates, totalling 256 fits
 [CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.591 total time= 1.3min
 Best parameters: {'clf__estimator__C': 10000, 'clf__estimator__gamma': 0.001, 'clf__estimator__kernel': 'rbf', 'tfidf__max_df': 0.8}
 Subset Accuracy: 0.9259259259259259
+
+
+EURLEX
+(venv) 0 ✓ nikola@koshast ~/projects/emma # ./newsmon bl svm_search -c eurlex --svm_kernel rbf                                                                                                                                                                                                                                                      25-04-18T15:49:13 ⎇
+/home/nikola/projects/emma/venv/lib/python3.12/site-packages/transformers/utils/hub.py:128: FutureWarning: Using `TRANSFORMERS_CACHE` is deprecated and will be removed in v5 of Transformers. Use `HF_HOME` instead.
+  warnings.warn(
+/home/nikola/projects/emma/venv/lib/python3.12/site-packages
+s2025-04-18 15:49:30 [INFO]  faiss._loader [98]: Loading faiss with AVX512 support.
+s2025-04-18 15:49:30 [INFO]  faiss._loader [103]: Could not load library with AVX512 support due to:
+ModuleNotFoundError("No module named 'faiss.swigfaiss_avx512'")
+s2025-04-18 15:49:30 [INFO]  faiss._loader [110]: Loading faiss with AVX2 support.
+s2025-04-18 15:49:30 [INFO]  faiss._loader [115]: Could not load library with AVX2 support due to:
+ModuleNotFoundError("No module named 'faiss.swigfaiss_avx2'")
+s2025-04-18 15:49:30 [INFO]  faiss._loader [133]: Loading faiss.
+s2025-04-18 15:49:30 [INFO]  faiss._loader [135]: Successfully loaded faiss.
+s2025-04-18 15:49:31 [INFO]  newsmon.utils [113]: Loading data from /home/nikola/projects/emma/data/newsmon/split/eurlex_all_p0_s0_train.csv...
+s2025-04-18 15:49:31 [INFO]  newsmon.utils [86]: Reading file /home/nikola/projects/emma/data/newsmon/split/eurlex_all_p0_s0_train.csv
+s2025-04-18 15:49:33 [INFO]  newsmon.utils [113]: Loading data from /home/nikola/projects/emma/data/newsmon/split/eurlex_all_p0_s0_dev.csv...
+s2025-04-18 15:49:33 [INFO]  newsmon.utils [86]: Reading file /home/nikola/projects/emma/data/newsmon/split/eurlex_all_p0_s0_dev.csv
+s2025-04-18 15:49:33 [INFO]  newsmon.utils [113]: Loading data from /home/nikola/projects/emma/data/newsmon/split/eurlex_all_p0_s0_test.csv...
+s2025-04-18 15:49:33 [INFO]  newsmon.utils [86]: Reading file /home/nikola/projects/emma/data/newsmon/split/eurlex_all_p0_s0_test.csv
+s2025-04-18 15:49:35 [INFO]  newsmon.bl [609]: Computed labels in     3.84 seconds
+s2025-04-18 15:49:35 [INFO]  newsmon.bl [612]: Computed data 51300 samples and 3409
+s2025-04-18 15:49:35 [INFO]  newsmon.bl [616]: Small num labels 0
+Fitting 1 folds for each of 256 candidates, totalling 256 fits
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.805 total time= 1.3min
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.805 total time= 1.3min
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.805 total time= 1.4min
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.801 total time= 1.3min
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.792 total time= 1.2min
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.792 total time= 1.2min
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.791 total time= 1.2min
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.781 total time= 1.2min
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.775 total time= 1.1min
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.774 total time= 1.1min
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.773 total time= 1.2min
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.753 total time= 1.1min
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.732 total time= 1.0min
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.731 total time= 1.1min
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.731 total time= 1.1min
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.718 total time= 1.1min
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.704 total time= 1.0min
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.703 total time= 1.1min
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.703 total time= 1.1min
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.691 total time= 1.1min
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.616 total time=  59.4s
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.615 total time=  58.0s
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.614 total time=  58.5s
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.601 total time=  59.8s
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.241 total time=  52.2s
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.239 total time=  52.4s
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.239 total time=  52.9s
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.234 total time=  53.5s
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.805 total time= 1.3min
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.805 total time= 1.3min
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.805 total time= 1.3min
+[CV 1/1] END clf__estimator__C=1, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.802 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.834 total time= 1.4min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.834 total time= 1.4min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.836 total time= 1.4min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.838 total time= 1.4min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.837 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.837 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.835 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.834 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.831 total time= 1.2min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.832 total time= 1.2min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.831 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.828 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.822 total time= 1.2min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.823 total time= 1.2min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.823 total time= 1.2min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.817 total time= 1.2min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.805 total time= 1.1min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.804 total time= 1.1min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.804 total time= 1.1min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.792 total time= 1.1min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.738 total time= 1.0min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.738 total time= 1.1min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.736 total time= 1.1min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.721 total time= 1.1min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.618 total time=  57.5s
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.615 total time=  58.1s
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.614 total time=  58.7s
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.601 total time= 1.0min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.834 total time= 1.4min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.834 total time= 1.4min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.835 total time= 1.4min
+[CV 1/1] END clf__estimator__C=10, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.837 total time= 1.4min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.829 total time= 1.4min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.831 total time= 1.4min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.832 total time= 1.4min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.832 total time= 1.4min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.830 total time= 1.3min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.831 total time= 1.3min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.831 total time= 1.3min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.829 total time= 1.3min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.825 total time= 1.3min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.824 total time= 1.3min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.825 total time= 1.3min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.825 total time= 1.3min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.827 total time= 1.2min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.826 total time= 1.2min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.826 total time= 1.3min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.828 total time= 1.3min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.828 total time= 1.2min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.827 total time= 1.2min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.828 total time= 1.2min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.827 total time= 1.2min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.822 total time= 1.1min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.822 total time= 1.2min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.822 total time= 1.2min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.817 total time= 1.2min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.738 total time= 1.0min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.738 total time= 1.1min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.736 total time= 1.1min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.722 total time= 1.1min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.829 total time= 1.4min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.831 total time= 1.4min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.832 total time= 1.4min
+[CV 1/1] END clf__estimator__C=100, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.832 total time= 1.4min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.832 total time= 1.4min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.831 total time= 1.4min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.833 total time= 1.4min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.832 total time= 1.4min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.828 total time= 1.3min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.827 total time= 1.3min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.828 total time= 1.3min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.822 total time= 1.3min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.815 total time= 1.2min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.815 total time= 1.3min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.814 total time= 1.3min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.812 total time= 1.3min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.808 total time= 1.2min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.808 total time= 1.3min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.810 total time= 1.3min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.809 total time= 1.3min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.810 total time= 1.2min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.811 total time= 1.3min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.811 total time= 1.3min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.813 total time= 1.3min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.827 total time= 1.2min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.827 total time= 1.2min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.828 total time= 1.2min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.826 total time= 1.3min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.806 total time= 1.1min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.805 total time= 1.1min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.805 total time= 1.1min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.793 total time= 1.1min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.832 total time= 1.4min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.831 total time= 1.4min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.833 total time= 1.4min
+[CV 1/1] END clf__estimator__C=500, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.832 total time= 1.4min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.832 total time= 1.4min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.832 total time= 1.4min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.833 total time= 1.4min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.831 total time= 1.4min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.827 total time= 1.3min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.827 total time= 1.3min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.828 total time= 1.3min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.821 total time= 1.3min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.816 total time= 1.2min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.815 total time= 1.3min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.815 total time= 1.3min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.810 total time= 1.3min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.802 total time= 1.2min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.802 total time= 1.3min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.803 total time= 1.3min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.803 total time= 1.3min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.803 total time= 1.2min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.802 total time= 1.3min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.804 total time= 1.3min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.805 total time= 1.3min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.821 total time= 1.2min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.820 total time= 1.2min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.822 total time= 1.2min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.825 total time= 1.3min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.822 total time= 1.1min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.822 total time= 1.2min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.822 total time= 1.2min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.818 total time= 1.2min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.832 total time= 1.4min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.832 total time= 1.4min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.833 total time= 1.4min
+[CV 1/1] END clf__estimator__C=1000, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.831 total time= 1.4min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.832 total time= 1.4min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.832 total time= 1.4min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.833 total time= 1.4min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.832 total time= 1.4min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.827 total time= 1.3min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.828 total time= 1.3min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.828 total time= 1.3min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.822 total time= 1.3min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.815 total time= 1.2min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.814 total time= 1.3min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.813 total time= 1.3min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.809 total time= 1.3min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.800 total time= 1.2min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.800 total time= 1.3min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.801 total time= 1.3min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.797 total time= 1.3min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.795 total time= 1.2min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.796 total time= 1.3min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.796 total time= 1.3min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.799 total time= 1.3min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.811 total time= 1.2min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.810 total time= 1.3min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.811 total time= 1.3min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.814 total time= 1.3min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.826 total time= 1.2min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.826 total time= 1.2min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.826 total time= 1.2min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.826 total time= 1.2min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.832 total time= 1.4min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.832 total time= 1.4min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.833 total time= 1.4min
+[CV 1/1] END clf__estimator__C=2000, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.832 total time= 1.4min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.833 total time= 1.4min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.832 total time= 1.4min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.833 total time= 1.4min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.832 total time= 1.4min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.827 total time= 1.3min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.827 total time= 1.3min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.828 total time= 1.3min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.823 total time= 1.3min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.815 total time= 1.2min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.814 total time= 1.3min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.814 total time= 1.3min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.807 total time= 1.3min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.795 total time= 1.2min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.797 total time= 1.3min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.798 total time= 1.3min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.794 total time= 1.3min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.789 total time= 1.3min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.790 total time= 1.3min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.793 total time= 1.3min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.790 total time= 1.3min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.797 total time= 1.3min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.798 total time= 1.3min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.800 total time= 1.3min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.804 total time= 1.3min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.826 total time= 1.2min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.826 total time= 1.2min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.826 total time= 1.2min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.826 total time= 1.2min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.833 total time= 1.4min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.832 total time= 1.4min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.833 total time= 1.4min
+[CV 1/1] END clf__estimator__C=5000, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.831 total time= 1.4min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.833 total time= 1.4min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.832 total time= 1.4min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.833 total time= 1.4min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=1, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.831 total time= 1.4min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.826 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.827 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.828 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.5, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.823 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.815 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.815 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.815 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.25, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.809 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.797 total time= 1.2min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.796 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.798 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.1, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.791 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.786 total time= 1.2min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.787 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.790 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.05, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.788 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.786 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.786 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.789 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.01, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.795 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.820 total time= 1.2min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.820 total time= 1.2min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.821 total time= 1.2min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=0.001, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.824 total time= 1.3min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.7;, score=0.833 total time= 1.4min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.8;, score=0.832 total time= 1.4min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=0.9;, score=0.833 total time= 1.4min
+[CV 1/1] END clf__estimator__C=10000, clf__estimator__gamma=scale, clf__estimator__kernel=rbf, tfidf__max_df=1.0;, score=0.831 total time= 1.4min
+Best parameters: {'clf__estimator__C': 10, 'clf__estimator__gamma': 1, 'clf__estimator__kernel': 'rbf', 'tfidf__max_df': 1.0}
+Subset Accuracy: 0.870152658361116

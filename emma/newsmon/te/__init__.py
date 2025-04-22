@@ -1,6 +1,8 @@
 import ast
 import os
 import logging
+import time
+
 import torch
 import random
 import pandas as pd
@@ -242,7 +244,7 @@ def te_train(args) -> int:
     result_path = str(os.path.join(args.data_out_dir, output_model_name))
     training_args = TrainingArguments(
         output_dir=result_path,
-        report_to='wandb',
+        #report_to='wandb',
         num_train_epochs=args.epochs,
         per_device_train_batch_size=args.batch,
         per_device_eval_batch_size=args.batch,
@@ -367,7 +369,9 @@ def te_test(args) -> int:
         preprocess_logits_for_metrics=preprocess_logits_for_metrics
     )
     print(f'{len(datasets["test"])}')
+    t1 = time.time()
     pred_output: PredictionOutput = trainer.predict(datasets['test'])
+    logger.info(f'Measured performance in {(time.time() - t1):8.2f} seconds')
     print(pred_output.metrics)
     # m = metrics(np.array(y_true, dtype=float), np.array(y_pred, dtype=float), 'test/')
     metrics.dump(args.data_out_dir, None, None, 100)
