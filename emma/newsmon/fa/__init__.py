@@ -373,7 +373,9 @@ def fa_test_zshot(args) -> int:
         logger.info(f'Processing zero-shot eval for {model_name}')
         for start_idx in tqdm(range(0, m_data.test_data['count'], batch_size), desc='Processing zero-shot eval.'):
             end_idx = min(start_idx + batch_size, m_data.test_data['count'])
-            query_vectors = m_data.test_data['x'][start_idx:end_idx]
+            # query_vectors = m_data.test_data['x'][start_idx:end_idx]
+            test_data_batch = [x['text'] for x in test_data_as_dicts[start_idx:end_idx]]
+            query_vectors = models[model_name].embed(test_data_batch)
             yl_true = m_data.test_data['y_true'][start_idx:end_idx]
 
             # Search for the topk nearest neighbors for all query vectors in the batch
