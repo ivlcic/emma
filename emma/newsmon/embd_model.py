@@ -72,7 +72,7 @@ class BgeM3(EmbeddingModelWrapper):
         )
 
     def embed(self, text_to_embed: Union[str, List[str]]) -> np.ndarray:
-        return self.model.encode(text_to_embed)['dense_vecs']
+        return self.model.encode(text_to_embed, max_length=512)['dense_vecs']
 
 
 class TFIDF(EmbeddingModelWrapper):
