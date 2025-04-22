@@ -428,7 +428,10 @@ def fa_test_mlknn(args) -> int:
         embeddings = m_data.embeddings
         y_true = m_data.train_data['y_true']
         mlknn = MLkNN(m_name, topk, 1, knn_search)
+        logger.info(f'Training ML-KNN model for {m_name}')
+        t0 = time.time()
         mlknn.fit(embeddings, y_true)
+        logger.info(f'Training ML-KNN model done in {(time.time() - t0):8.2f} seconds')
         m_data.mlknn = mlknn
 
     batch_size = 384
