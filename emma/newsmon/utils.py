@@ -207,7 +207,9 @@ def filter_metrics(args, labeler: Labeler, y_true: Union[List, np.ndarray], y_pr
     if args.test_l_class != 'all':
         label_classes = load_labels(args.data_in_dir, args.collection, __label_splits, __label_split_names)
         target_labels = label_classes[args.test_l_class]
-        target_indices = [labeler.encoder.classes_.tolist().index(label) for label in target_labels.keys()]
+        trained_labels = labeler.encoder.classes_.tolist()
+        valid_labels = [label for label in trained_labels if label in target_labels]
+        target_indices = [trained_labels.index(label) for label in valid_labels]
         filter_labels = True
 
     if not filter_labels:

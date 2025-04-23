@@ -338,6 +338,9 @@ def bl_svm(args):
     ./newsmon bl svm -c newsmon -l sl --public
     ./newsmon bl svm -c newsmon -l sl --public --test_l_class Rare
     ./newsmon bl svm -c newsmon -l sl --public --test_l_class Frequent
+    ./newsmon bl svm -c eurlex
+    ./newsmon bl svm -c eurlex --test_l_class Rare
+    ./newsmon bl svm -c eurlex --test_l_class Frequent
     """
     t0 = time.time()
 
@@ -357,14 +360,14 @@ def bl_svm(args):
     models = EmbeddingModelWrapperFactory.init_models(args)
 
     suffix = ''
-    target_labels = None
+    #target_labels = None
     if args.test_l_class != 'all':
         suffix = '_' + args.test_l_class
-        label_classes = load_labels(args.data_in_dir, args.collection, __label_splits, __label_split_names)
-        target_labels = label_classes[args.test_l_class]
+        #label_classes = load_labels(args.data_in_dir, args.collection, __label_splits, __label_split_names)
+        #target_labels = label_classes[args.test_l_class]
 
-    instance_counts, label_counts = _count_labels(target_labels, train_df['label'].tolist())
-    filtered_data, filtered_labels = filter_samples(target_labels, train_data_as_dicts)
+    instance_counts, label_counts = _count_labels(None, train_df['label'].tolist())
+    filtered_data, filtered_labels = filter_samples(None, train_data_as_dicts)
 
     valid_labels = list(label_counts.keys())
     labeler = MultilabelLabeler(valid_labels)
@@ -400,6 +403,7 @@ def bl_svm(args):
         t0 = time.time()
         logger.info(f'Computing metrics...')
         metrics = Metrics(f'svm_{m_name}_{args.collection}{suffix}', labeler.get_type_code())
+        y_true, y_pred = filter_metrics(args, labeler, y_true, y_pred)
         metrics(y_true, y_pred, 'test/', 0.5)
         meta = {'num_samples': np.shape(y_true)[0], 'num_labels': np.shape(y_true)[1]}
         metrics.dump(args.data_result_dir, meta, None, 100)
@@ -428,14 +432,11 @@ def bl_logreg(args):
     models = EmbeddingModelWrapperFactory.init_models(args)
 
     suffix = ''
-    target_labels = None
     if args.test_l_class != 'all':
         suffix = '_' + args.test_l_class
-        label_classes = load_labels(args.data_in_dir, args.collection, __label_splits, __label_split_names)
-        target_labels = label_classes[args.test_l_class]
 
-    instance_counts, label_counts = _count_labels(target_labels, train_df['label'].tolist())
-    filtered_data, filtered_labels = filter_samples(target_labels, train_data_as_dicts)
+    instance_counts, label_counts = _count_labels(None, train_df['label'].tolist())
+    filtered_data, filtered_labels = filter_samples(None, train_data_as_dicts)
 
     valid_labels = list(label_counts.keys())
     labeler = MultilabelLabeler(valid_labels)
@@ -443,7 +444,7 @@ def bl_logreg(args):
     logger.info(f'Computed labels in {(time.time() - t0):8.2f} seconds')
 
     train_texts = [x['text'] for x in filtered_data]
-    logger.info(f'Computed data {len(train_texts)} samples and {len(labeler.encoder.classes_)}')
+    logger.info(f'Computed data {len(train_texts)} samples and {len(labeler.encoder.classes_)} labels')
 
     train_labels = labeler.vectorize(filtered_labels)
     zero_label_cols = np.where(np.sum(train_labels, axis=0) == 0)[0]
@@ -479,6 +480,7 @@ def bl_logreg(args):
         metrics = Metrics(f'logreg_{m_name}_{args.collection}{suffix}', labeler.get_type_code())
         t1 = time.time()
         logger.info(f'LogReg computing {m_name} metrics')
+        y_true, y_pred = filter_metrics(args, labeler, y_true, y_pred)
         metrics(y_true, y_pred, 'test/', 0.5)
         meta = {'num_samples': np.shape(y_true)[0], 'num_labels': np.shape(y_true)[1]}
         metrics.dump(args.data_result_dir, meta, None, 100)
@@ -490,8 +492,6 @@ def bl_logreg_search(args):
     """
     Baseline Logistic Regression TF-IDF classifier grid search.
     ./newsmon bl logreg_search -c newsmon -l sl --public
-    ./newsmon bl logreg_search -c newsmon -l sl --public --test_l_class Rare
-    ./newsmon bl logreg_search -c newsmon -l sl --public --test_l_class Frequent
     """
     t0 = time.time()
     compute_arg_collection_name(args)
@@ -500,14 +500,8 @@ def bl_logreg_search(args):
     train_data_as_dicts.extend(dev_data_as_dicts)
     test_data_as_dicts, test_df = load_data(args, args.collection + '_test')  # we load the test data
 
-    target_labels = None
-    if args.test_l_class != 'all':
-        label_classes = load_labels(args.data_in_dir, args.collection, __label_splits, __label_split_names)
-        target_labels = label_classes[args.test_l_class]
-
-    instance_counts, label_counts = _count_labels(target_labels, train_df['label'].tolist())
-    if target_labels == None:
-        target_labels = [k for k, v in label_counts.items() if v > 1]
+    instance_counts, label_counts = _count_labels(None, train_df['label'].tolist())
+    target_labels = [k for k, v in label_counts.items() if v > 1]
 
     filtered_data, filtered_labels = filter_samples(target_labels, train_data_as_dicts)
 

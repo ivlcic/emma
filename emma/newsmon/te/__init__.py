@@ -366,7 +366,7 @@ def te_test(args) -> int:
     trainer = Trainer(
         model=model,
         #compute_metrics=compute_metrics,
-        #preprocess_logits_for_metrics=preprocess_logits_for_metrics
+        preprocess_logits_for_metrics=preprocess_logits_for_metrics
     )
     print(f'{len(datasets["test"])}')
     t1 = time.time()

@@ -96,16 +96,30 @@
 ./newsmon fa test_rae_sim -c eurlex --ptm_models bge_m3,e_bge_m3 --test_l_class Rare
 ./newsmon fa test_rae_sim -c eurlex --ptm_models bge_m3,e_bge_m3 --test_l_class Frequent
 
-
 ./newsmon bl majority -c newsmon -l sl --public
 ./newsmon bl majority -c newsmon -l sl --public --test_l_class Rare
 ./newsmon bl majority -c newsmon -l sl --public --test_l_class Frequent
-./newsmon bl random -c newsmon -l sl --public
-./newsmon bl random -c newsmon -l sl --public --test_l_class Rare
-./newsmon bl random -c newsmon -l sl --public --test_l_class Frequent
 ./newsmon bl majority -c eurlex
 ./newsmon bl majority -c eurlex --test_l_class Rare
 ./newsmon bl majority -c eurlex --test_l_class Frequent
+
+./newsmon bl random -c newsmon -l sl --public
+./newsmon bl random -c newsmon -l sl --public --test_l_class Rare
+./newsmon bl random -c newsmon -l sl --public --test_l_class Frequent
 ./newsmon bl random -c eurlex
 ./newsmon bl random -c eurlex --test_l_class Rare
 ./newsmon bl random -c eurlex --test_l_class Frequent
+
+./newsmon bl svm -c newsmon -l sl --public
+./newsmon bl svm -c newsmon -l sl --public --test_l_class Rare
+./newsmon bl svm -c newsmon -l sl --public --test_l_class Frequent
+./newsmon bl svm -c eurlex
+./newsmon bl svm -c eurlex --test_l_class Rare
+./newsmon bl svm -c eurlex --test_l_class Frequent
+
+./newsmon bl logreg -c newsmon -l sl --public
+./newsmon bl logreg -c newsmon -l sl --public --test_l_class Rare
+./newsmon bl logreg -c newsmon -l sl --public --test_l_class Frequent
+./newsmon bl logreg -c eurlex
+./newsmon bl logreg -c eurlex --test_l_class Rare
+./newsmon bl logreg -c eurlex --test_l_class Frequent
