@@ -498,7 +498,7 @@ def prep_corpus_analyze(arg) -> int:
     ./mulabel prep corpus_analyze -c 'mulabel_sl_p1_s0_article*.csv' --label_col labels
     ./mulabel prep corpus_analyze -c 'mulabel_sl_p1_s1_article*.csv' --label_col labels
     ./mulabel prep corpus_analyze -c 'map_articles*.csv' --label_col tags
-    ./mulabel prep corpus_analyze -c 'eurlex*.csv' --label_col ml_label
+    ./mulabel prep corpus_analyze -c 'eurlex*.csv' --label_col label
     ./mulabel prep corpus_analyze -c '20news*.csv' --label_col mc_label
     ./mulabel prep corpus_analyze -c 'reuters-21578*.csv' --label_col topics
     """
@@ -565,28 +565,43 @@ def prep_corpus_analyze(arg) -> int:
 
     # Add a dotted vertical line at the second xtick
     ten_xtick = 1.5
-    ax.axvline(x=ten_xtick, color='red', linestyle=':', linewidth=2)
+    ax.axvline(x=ten_xtick, color='red', linestyle=':', linewidth=2, zorder=1)
+
+    fifty_xtick = 10.5
+    ax.axvline(x=fifty_xtick, color='red', linestyle=':', linewidth=2, zorder=1)
+
+    fiveh_xtick = 100.5
+    ax.axvline(x=fiveh_xtick, color='red', linestyle=':', linewidth=2, zorder=1)
 
     sum_10 = tag_df[tag_df['count'] <= 10]['count'].count()
     ax.annotate(f'{sum_10} labels\n(≤ 10 occurrences)', xy=(ten_xtick, ax.get_ylim()[1]),
-                xytext=(10, -30), textcoords='offset points', ha='left', va='bottom',
-                bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),)
+                xytext=(10, -60), textcoords='offset points', ha='left', va='bottom',
+                bbox=dict(boxstyle='round,pad=0.5', fc='gold', alpha=0.9),
+                fontsize=10,  # font size
+                fontweight='bold',  # font weight
+                zorder=5
+                )
                 #arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
 
-    fifty_xtick = 10.5
-    ax.axvline(x=fifty_xtick, color='red', linestyle=':', linewidth=2)
+
     sum_50 = tag_df[tag_df['count'] <= 50]['count'].count()
     ax.annotate(f'{sum_50} labels\n(≤ 50 occurrences)', xy=(fifty_xtick, ax.get_ylim()[1]),
-                xytext=(10, -200), textcoords='offset points', ha='left', va='bottom',
-                bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),)
+                xytext=(10, -230), textcoords='offset points', ha='left', va='bottom',
+                bbox=dict(boxstyle='round,pad=0.5', fc='gold', alpha=0.9),
+                fontsize=10,  # font size
+                fontweight='bold',  # font weight
+                zorder=5
+                )
                 #arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
 
-    fiveh_xtick = 100.5
-    ax.axvline(x=fiveh_xtick, color='red', linestyle=':', linewidth=2)
     sum_500 = tag_df[tag_df['count'] > 500]['count'].count()
     ax.annotate(f'{sum_500} labels\n(> 500 occurrences)', xy=(fiveh_xtick, ax.get_ylim()[1]),
-                xytext=(-115, -370), textcoords='offset points', ha='left', va='bottom',
-                bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),)
+                xytext=(-125, -360), textcoords='offset points', ha='left', va='bottom',
+                bbox=dict(boxstyle='round,pad=0.5', fc='gold', alpha=0.9),
+                fontsize=10,  # font size
+                fontweight='bold',  # font weight
+                zorder=5
+                )
                 #arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
 
     plt.xlabel('Number of occurrences in documents')
