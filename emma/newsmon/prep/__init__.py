@@ -1,3 +1,4 @@
+import glob
 import os
 import ast
 import logging
@@ -12,7 +13,6 @@ import pandas.api.types as ptypes
 from typing import Dict, Any, List
 from argparse import ArgumentParser
 
-from holoviews import output
 from tqdm import tqdm
 
 from ..embd_model import EmbeddingModelWrapperFactory
@@ -469,7 +469,7 @@ def prep_label_project(args):
     max_dens = np.max(label_density)
     min_dens = np.min(label_density)
     bins = np.linspace(min_dens, max_dens, 11)
-    logger.info(f'Bins {bins}')
+    logger.info(f'Bins {bins.shape}{bins}')
     digitized_samples = np.digitize(label_density, bins, right=False) - 1
     logger.info(f'Digitized space {digitized_samples.shape}')
     logger.info(f'Digitized space {digitized_samples}')
@@ -492,6 +492,8 @@ def prep_label_project(args):
     sns.scatterplot(x=embedding[:, 0],
                     y=embedding[:, 1],
                     hue=digitized_samples,
+                    size=1,
+                    #hue_order=np.arange(0, 10, 1, dtype=int),
                     palette="coolwarm",
                     edgecolor=None,
                     alpha=0.7)
@@ -502,3 +504,275 @@ def prep_label_project(args):
     output_filename = os.path.join(args.data_result_dir, f'label_tsne_proj_{args.collection}{suffix}.png')
     plt.savefig(output_filename, dpi=300)  # , transparent=True)
     plt.close()
+
+
+def prep_label_project2(args):
+    """
+    UMAP label space projection
+    ./newsmon prep label_project2 -c newsmon -l sl --public
+    ./newsmon prep label_project2 -c newsmon -l sl --public --test_l_class Rare
+    ./newsmon prep label_project2 -c newsmon -l sl --public --test_l_class Frequent
+
+    ./newsmon prep label_project2 -c eurlex
+    ./newsmon prep label_project2 -c eurlex --test_l_class Rare
+    ./newsmon prep label_project2 -c eurlex --test_l_class Frequent
+    """
+    compute_arg_collection_name(args)
+    labeler, labels_df = init_labeler(args)
+    train_data_as_dicts, train_df = load_data(args, args.collection + '_train')  # we load the train data
+    dev_data_as_dicts, dev_df = load_data(args, args.collection + '_dev')  # we load the validation data
+    test_data_as_dicts, test_df = load_data(args, args.collection + '_test')  # we load the test data
+
+    data_df = pd.concat([train_df, dev_df, test_df], ignore_index=True)
+
+    suffix = ''
+    c = args.collection_conf
+    if 'newsmon' in args.collection:
+        c = 'NewsMon'
+    if 'eurlex' in args.collection:
+        c = 'EurLex57K'
+    title_append = f' - {c}'
+    target_labels = None
+    if args.test_l_class != 'all':
+        title_append += f', {args.test_l_class} labels'
+        suffix = '_' + args.test_l_class
+        label_classes = load_labels(args.data_in_dir, args.collection, __label_splits, __label_split_names)
+        target_labels = label_classes[args.test_l_class]
+
+    sample_tag_counts = []
+    for instance_labels in data_df['label']:
+        instance_labels.sort()
+        if target_labels:
+            instance_labels = [item for item in instance_labels if item in target_labels]
+        if not instance_labels:
+            continue
+        sample_tag_counts.append(len(instance_labels))
+
+    std_dev_labels = np.std(sample_tag_counts, axis=0)
+    mean_labels = np.mean(sample_tag_counts, axis=0)
+    total = len(sample_tag_counts)
+    logger.info(f'Mean {mean_labels} Standard deviation {std_dev_labels}, total samples {total}')
+
+    label_lists = []
+    for split in [train_data_as_dicts, dev_data_as_dicts, test_data_as_dicts]:
+        for data_sample in split:
+            label_lists.append(data_sample['label'])
+
+    label_space = np.array(labeler.vectorize(label_lists))
+    logger.info(f'Label space {label_space.shape}')
+
+    label_density = np.sum(label_space, axis=1)  / label_space.shape[1]
+    logger.info(f'Density space {label_density.shape}')
+    logger.info(f'Density space {label_density}')
+    max_dens = np.max(label_density)
+    min_dens = np.min(label_density)
+    bins = np.linspace(min_dens, max_dens, 11)
+    logger.info(f'Bins {bins}')
+    digitized_samples = np.digitize(label_density, bins, right=False) - 1
+    logger.info(f'Digitized space {digitized_samples.shape}')
+    logger.info(f'Digitized space {digitized_samples}')
+
+    #import cupy as cp
+    #from cuml.manifold import UMAP
+    import umap
+    import seaborn as sns
+
+    # Initialize the UMAP model
+    umap_model = umap.UMAP()
+
+    t0 = time.time()
+    embedding = umap_model.fit_transform(label_space)
+    logger.info(f'Computation done in {(time.time() - t0):8.2f} seconds')
+    logger.info(f'Embedding space {embedding.shape}')
+
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(8, 8))
+    for bin_idx, _ in enumerate(bins):
+        # Mask for current density bin
+        mask = digitized_samples == bin_idx
+        #if (bin_idx) % 2 == 1:
+        #    continue
+        if not np.any(mask):  # Skip empty bins
+            continue
+
+        # Get points for this density bin
+        x_vals = embedding[mask, 0]
+        y_vals = embedding[mask, 1]
+        masked_hue = digitized_samples[mask]
+
+        plt.scatter(
+            x=x_vals,
+            y=y_vals,
+            c=[bin_idx] * len(x_vals),  # Array matching x/y length
+            #hue=masked_hue,
+            cmap="coolwarm",
+            vmin=0,
+            vmax=len(bins) - 1,
+            edgecolor="none",
+            alpha=0.7,
+            s=10,
+            zorder=bin_idx,
+            label=bin_idx
+        )
+
+    plt.gca().set_aspect('equal', 'datalim')
+    #plt.title(f'UMAP Visualization{title_append}', fontsize=18)
+
+    plt.legend(title="Label Density", loc="upper right", ncol=1, markerscale=3)
+    plt.tight_layout()
+    output_filename = os.path.join(args.data_result_dir, f'label_tsne_proj2_{args.collection}{suffix}.png')
+    plt.savefig(output_filename, dpi=300)  # , transparent=True)
+    plt.close()
+
+
+# noinspection DuplicatedCode
+def prep_corpus_analyze(arg) -> int:
+    """
+    Analyses corpus multilabel data
+    ./mulabel prep corpus_analyze -c 'newsmon_sl_p1_s0*.csv' --label_col label
+    ./mulabel prep corpus_analyze -c 'mulabel_sl_p1_s0_article*.csv' --label_col labels
+    ./mulabel prep corpus_analyze -c 'mulabel_sl_p1_s1_article*.csv' --label_col labels
+    ./mulabel prep corpus_analyze -c 'map_articles*.csv' --label_col tags
+    ./mulabel prep corpus_analyze -c 'eurlex*.csv' --label_col label
+    ./mulabel prep corpus_analyze -c '20news*.csv' --label_col mc_label
+    ./mulabel prep corpus_analyze -c 'reuters-21578*.csv' --label_col topics
+    """
+    file_paths = glob.glob(os.path.join(arg.data_in_dir, arg.collection))
+    l_col = arg.label_col
+
+    dfs = []
+    for file in file_paths:
+        logger.info(f'Reading file %s', file)
+        tmp_df = pd.read_csv(file, encoding='utf-8')
+        if ptypes.is_string_dtype(tmp_df[l_col]):
+            tmp_df[l_col] = tmp_df[l_col].apply(ast.literal_eval)
+        elif ptypes.is_integer_dtype(tmp_df[l_col]):
+            tmp_df[l_col] = tmp_df[l_col].apply(lambda x: [x])
+        dfs.append(tmp_df)
+
+    article_df = pd.concat(dfs, ignore_index=True)
+    if 'lang' in article_df:
+        logger.info('Got languages in dataset: %s', article_df["lang"].unique())
+
+    num_samples = article_df.shape[0]
+    logger.info('Number of samples: %s', num_samples)
+    logger.info('With columns: %s', article_df.columns)
+
+    # Create a list of all tags
+    all_tags = []
+    for tags in article_df[l_col]:
+        all_tags.extend(tags)
+
+    # Count the occurrences of each tag
+    tag_counts = Counter(all_tags)
+
+    # Construct the tag counts dataframe
+    tag_dict = {'tag': [], 'count': []}
+    for label, count in tag_counts.items():
+        tag_dict['tag'].append(label)
+        tag_dict['count'].append(count)
+
+    tag_df = pd.DataFrame(tag_dict).sort_values('tag', ascending=True)
+
+    num_tags = tag_df.shape[0]
+    logger.info('Number of labels: %s', num_tags)
+
+    bin_size = 5
+    labels_bins = [i for i in range(0, 501, bin_size)]
+    labels_bins.append(float('inf'))
+    label_histogram_counts = pd.cut(tag_df['count'], bins=labels_bins).value_counts().sort_index()
+    print(label_histogram_counts.head())
+    label_histogram_percentages = (label_histogram_counts / num_tags) * 100
+
+    import matplotlib.pyplot as plt
+    import matplotlib.ticker as ticker
+    ax = label_histogram_counts.plot(kind='bar', width=0.9)
+
+    # Get the current tick locations and labels
+    ticks = ax.get_xticks()
+    labels = [item.get_text() for item in ax.get_xticklabels()]
+
+    # Keep only every 10th tick and label
+    new_ticks = ticks[::10]
+    new_labels = [str(int(tick * bin_size)) if i % 2 == 0 else '' for i, tick in enumerate(new_ticks)]
+
+    # Set the new ticks and labels
+    ax.set_xticks(new_ticks)
+    ax.set_xticklabels(new_labels)
+    ax.yaxis.set_major_locator(ticker.MultipleLocator(base=100.0))  # Adjust base
+
+    # Add a dotted vertical line at the second xtick
+    ten_xtick = 1.5
+    ax.axvline(x=ten_xtick, color='red', linestyle=':', linewidth=2, zorder=1)
+
+    fifty_xtick = 10.5
+    ax.axvline(x=fifty_xtick, color='red', linestyle=':', linewidth=2, zorder=1)
+
+    fiveh_xtick = 100.5
+    ax.axvline(x=fiveh_xtick, color='red', linestyle=':', linewidth=2, zorder=1)
+
+    sum_10 = tag_df[tag_df['count'] <= 10]['count'].count()
+    ax.annotate(f'{sum_10} labels\n(≤ 10 occurrences)', xy=(ten_xtick, ax.get_ylim()[1]),
+                xytext=(10, -60), textcoords='offset points', ha='left', va='bottom',
+                bbox=dict(boxstyle='round,pad=0.5', fc='gold', alpha=0.9),
+                fontsize=12,  # font size
+                fontweight='bold',  # font weight
+                zorder=5
+                )
+                #arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
+
+
+    sum_50 = tag_df[tag_df['count'] <= 50]['count'].count()
+    ax.annotate(f'{sum_50} labels\n(≤ 50 occurrences)', xy=(fifty_xtick, ax.get_ylim()[1]),
+                xytext=(10, -230), textcoords='offset points', ha='left', va='bottom',
+                bbox=dict(boxstyle='round,pad=0.5', fc='gold', alpha=0.9),
+                fontsize=12,  # font size
+                fontweight='bold',  # font weight
+                zorder=5
+                )
+                #arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
+
+    sum_500 = tag_df[tag_df['count'] > 500]['count'].count()
+    ax.annotate(f'{sum_500} labels\n(> 500 occurrences)', xy=(fiveh_xtick, ax.get_ylim()[1]),
+                xytext=(-145, -360), textcoords='offset points', ha='left', va='bottom',
+                bbox=dict(boxstyle='round,pad=0.5', fc='gold', alpha=0.9),
+                fontsize=12,  # font size
+                fontweight='bold',  # font weight
+                zorder=5
+                )
+                #arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
+
+    #plt.xlabel('Number of occurrences in documents', fonsize=12)
+    #plt.ylabel('Number of labels', fonsize=12)
+    #plt.title('Histogram of Label Occurrences')
+    ax.set_xlabel('Number of occurrences in documents', fontdict={'fontsize': 12})
+    ax.set_ylabel('Number of labels', fontdict={'fontsize': 12})
+    plt.show()
+
+    tags_diversity = {}
+    sum_tags_per_sample = 0
+    sum_tags_over_all = 0
+    sample_tag_counts = []
+    for tags in article_df[l_col]:
+        sum_tags_per_sample += len(tags)
+        sample_tag_counts.append(len(tags))
+        sum_tags_over_all += (len(tags) / num_tags)
+        tags_s = str(sorted(set(tags)))
+        if not tags_s in tags_diversity:
+            tags_diversity[tags_s] = 1
+        else:
+            tags_diversity[tags_s] += 1
+
+    label_density = sum_tags_over_all / num_samples
+    label_cardinality = sum_tags_per_sample / num_samples
+    label_diversity = len(tags_diversity)
+
+    logger.info(f'Label density: {label_density}')
+    logger.info(f'Label cardinality: {label_cardinality}')
+    logger.info(f'Label diversity: {label_diversity}')
+
+    std_dev_cols = np.std(sample_tag_counts, axis=0)
+    mean_cols = np.mean(sample_tag_counts, axis=0)
+    logger.info(f'Mean {mean_cols} Standard deviation {std_dev_cols}')
+    return 0

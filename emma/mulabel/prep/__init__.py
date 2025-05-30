@@ -577,7 +577,7 @@ def prep_corpus_analyze(arg) -> int:
     ax.annotate(f'{sum_10} labels\n(≤ 10 occurrences)', xy=(ten_xtick, ax.get_ylim()[1]),
                 xytext=(10, -60), textcoords='offset points', ha='left', va='bottom',
                 bbox=dict(boxstyle='round,pad=0.5', fc='gold', alpha=0.9),
-                fontsize=10,  # font size
+                fontsize=12,  # font size
                 fontweight='bold',  # font weight
                 zorder=5
                 )
@@ -588,7 +588,7 @@ def prep_corpus_analyze(arg) -> int:
     ax.annotate(f'{sum_50} labels\n(≤ 50 occurrences)', xy=(fifty_xtick, ax.get_ylim()[1]),
                 xytext=(10, -230), textcoords='offset points', ha='left', va='bottom',
                 bbox=dict(boxstyle='round,pad=0.5', fc='gold', alpha=0.9),
-                fontsize=10,  # font size
+                fontsize=12,  # font size
                 fontweight='bold',  # font weight
                 zorder=5
                 )
@@ -596,17 +596,19 @@ def prep_corpus_analyze(arg) -> int:
 
     sum_500 = tag_df[tag_df['count'] > 500]['count'].count()
     ax.annotate(f'{sum_500} labels\n(> 500 occurrences)', xy=(fiveh_xtick, ax.get_ylim()[1]),
-                xytext=(-125, -360), textcoords='offset points', ha='left', va='bottom',
+                xytext=(-145, -360), textcoords='offset points', ha='left', va='bottom',
                 bbox=dict(boxstyle='round,pad=0.5', fc='gold', alpha=0.9),
-                fontsize=10,  # font size
+                fontsize=12,  # font size
                 fontweight='bold',  # font weight
                 zorder=5
                 )
                 #arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
 
-    plt.xlabel('Number of occurrences in documents')
-    plt.ylabel('Number of labels')
+    #plt.xlabel('Number of occurrences in documents', fonsize=12)
+    #plt.ylabel('Number of labels', fonsize=12)
     #plt.title('Histogram of Label Occurrences')
+    ax.set_xlabel('Number of occurrences in documents', fontdict={'fontsize': 12})
+    ax.set_ylabel('Number of labels', fontdict={'fontsize': 12})
     plt.show()
 
     tags_diversity = {}
